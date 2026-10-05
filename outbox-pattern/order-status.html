@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Order State Machine</title>
+  <meta name="description" content="Interactive visualization of the Order lifecycle state machine: CREATED → PAYMENT_PENDING → CONFIRMED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #07090f;
+      --surface: #0d1117;
+      --card:    #111827;
+      --border:  rgba(255,255,255,0.07);
+      --text:    #f0f4ff;
+      --muted:   #6b7280;
+      --dim:     #374151;
+
+      /* state colours */
+      --c0: #64748b; /* CREATED */
+      --c1: #f59e0b; /* PAYMENT_PENDING */
+      --c2: #10b981; /* CONFIRMED */
+      --c3: #3b82f6; /* PROCESSING */
+      --c4: #8b5cf6; /* SHIPPED */
+      --c5: #f97316; /* OUT_FOR_DELIVERY */
+      --c6: #22d3ee; /* DELIVERED */
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── canvas bg ─────────────────────────────── */
+    #bg-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .6; }
+
+    /* ── layout ────────────────────────────────── */
+    .page {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      grid-template-rows: auto 1fr;
+      gap: 0 2rem;
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    /* ── header ────────────────────────────────── */
+    header {
+      grid-column: 1 / -1;
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-size: .68rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+      padding: .3rem 1rem; border-radius: 999px;
+      background: rgba(99,179,237,.08); border: 1px solid rgba(99,179,237,.2);
+      color: #63b3ed; margin-bottom: 1.1rem;
+    }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: #63b3ed; animation: blink 1.5s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+    header h1 {
+      font-size: clamp(2rem, 4.5vw, 3.2rem);
+      font-weight: 900; line-height: 1.1; margin-bottom: .9rem;
+      background: linear-gradient(140deg, #f0f4ff 0%, #63b3ed 45%, #a78bfa 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    header p { color: var(--muted); font-size: .92rem; max-width: 500px; margin: 0 auto; line-height: 1.75; }
+
+    /* ── timeline column ───────────────────────── */
+    .timeline-col { display: flex; flex-direction: column; gap: 0; }
+
+    /* ── state card ────────────────────────────── */
+    .state-row {
+      display: flex;
+      gap: 0;
+      align-items: stretch;
+      position: relative;
+    }
+
+    /* vertical rail */
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 56px;
+      flex-shrink: 0;
+    }
+    .rail-dot {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      border: 2px solid var(--dim);
+      background: var(--card);
+      display: grid; place-items: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      transition: border-color .4s, box-shadow .4s, background .4s;
+      position: relative; z-index: 1;
+    }
+    .rail-line {
+      width: 2px;
+      flex: 1;
+      min-height: 16px;
+      background: var(--dim);
+      transition: background .4s;
+    }
+    .state-row:last-child .rail-line { display: none; }
+
+    /* content card */
+    .state-card {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.1rem 1.3rem 1.1rem 1rem;
+      margin-bottom: 12px;
+      transition: border-color .4s, box-shadow .4s, transform .3s;
+      cursor: default;
+      position: relative;
+      overflow: hidden;
+    }
+    .state-card::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+      background: var(--dim);
+      border-radius: 3px 0 0 3px;
+      transition: background .4s;
+    }
+    .state-card:hover { transform: translateX(3px); }
+
+    .state-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .45rem; }
+    .state-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .78rem; font-weight: 600; letter-spacing: .06em;
+      color: var(--muted);
+      transition: color .4s;
+    }
+    .state-badge {
+      font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      padding: .15rem .5rem; border-radius: 6px;
+      background: var(--border); color: var(--muted);
+      transition: background .4s, color .4s;
+    }
+    .state-title { font-size: .95rem; font-weight: 700; color: var(--text); margin-bottom: .3rem; }
+    .state-desc  { font-size: .76rem; color: var(--muted); line-height: 1.55; }
+
+    /* ── active state ─────────────────────────── */
+    .state-row.done   .rail-dot   { border-color: var(--clr); background: color-mix(in srgb, var(--clr) 15%, transparent); box-shadow: 0 0 0 6px color-mix(in srgb, var(--clr) 10%, transparent); }
+    .state-row.done   .rail-line  { background: var(--clr); }
+    .state-row.done   .state-card { border-color: color-mix(in srgb, var(--clr) 30%, transparent); box-shadow: 0 4px 24px color-mix(in srgb, var(--clr) 12%, transparent); }
+    .state-row.done   .state-card::before { background: var(--clr); }
+    .state-row.done   .state-name { color: var(--clr); }
+    .state-row.done   .state-badge { background: color-mix(in srgb, var(--clr) 15%, transparent); color: var(--clr); }
+
+    .state-row.active .rail-dot   { border-color: var(--clr); background: color-mix(in srgb, var(--clr) 20%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--clr) 15%, transparent), 0 0 30px color-mix(in srgb, var(--clr) 30%, transparent); animation: pulse-ring 1.8s ease-in-out infinite; }
+    .state-row.active .state-card { border-color: color-mix(in srgb, var(--clr) 50%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--clr) 20%, transparent), 0 8px 36px color-mix(in srgb, var(--clr) 20%, transparent); }
+    .state-row.active .state-card::before { background: var(--clr); box-shadow: 2px 0 12px color-mix(in srgb, var(--clr) 60%, transparent); }
+    .state-row.active .state-name { color: var(--clr); }
+    .state-row.active .state-badge { background: var(--clr); color: #000; }
+    .state-row.active .state-title { color: var(--clr); }
+
+    @keyframes pulse-ring {
+      0%,100% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--clr) 20%, transparent), 0 0 20px color-mix(in srgb, var(--clr) 20%, transparent); }
+      50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--clr) 8%, transparent),  0 0 40px color-mix(in srgb, var(--clr) 30%, transparent); }
+    }
+
+    /* done tick overlay */
+    .tick-overlay {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-size: .8rem; opacity: 0; transition: opacity .3s;
+      pointer-events: none;
+    }
+    .state-row.done .tick-overlay { opacity: 1; }
+    .state-row.done .rail-dot > span { opacity: 0; }
+
+    /* transition arrow between cards */
+    .transition-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .62rem; color: var(--dim);
+      padding: 0 0 0 56px;
+      margin-bottom: 0;
+      line-height: 2;
+      transition: color .4s;
+    }
+    .state-row.done + .transition-label  { color: var(--muted); }
+
+    /* ── right panel ───────────────────────────── */
+    .panel-col {
+      display: flex; flex-direction: column; gap: 1.2rem;
+    }
+
+    /* order card */
+    .order-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 1.4rem;
+      position: sticky;
+      top: 2rem;
+    }
+    .order-card h3 { font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+
+    .order-id { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 600; color: var(--text); margin-bottom: .2rem; }
+    .order-product { font-size: .8rem; color: var(--muted); margin-bottom: 1.1rem; }
+
+    .status-display {
+      border-radius: 12px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 1.2rem;
+      transition: background .4s, border-color .4s;
+      border: 1px solid var(--border);
+    }
+    .status-display .label { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .3rem; font-weight: 600; }
+    .status-display .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem; font-weight: 700;
+      transition: color .4s;
+    }
+
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin-bottom: 1.2rem; }
+    .meta-item { }
+    .meta-item .k { font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .2rem; }
+    .meta-item .v { font-family: 'JetBrains Mono', monospace; font-size: .75rem; color: var(--text); font-weight: 500; }
+
+    /* progress bar */
+    .progress-wrap { margin-bottom: 1.2rem; }
+    .progress-label { display: flex; justify-content: space-between; font-size: .65rem; color: var(--muted); margin-bottom: .4rem; }
+    .progress-track { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; }
+    .progress-fill  { height: 100%; border-radius: 99px; transition: width .6s cubic-bezier(.4,0,.2,1), background .4s; width: 0%; }
+
+    /* btn */
+    .btn-advance {
+      width: 100%; padding: .85rem;
+      border-radius: 12px; border: none;
+      font-family: 'Inter', sans-serif; font-size: .85rem; font-weight: 700;
+      cursor: pointer; transition: all .25s;
+      background: linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(99,102,241,.35);
+      letter-spacing: .02em;
+    }
+    .btn-advance:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(99,102,241,.5); }
+    .btn-advance:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .btn-reset {
+      width: 100%; padding: .65rem;
+      border-radius: 10px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted);
+      font-family: 'Inter', sans-serif; font-size: .8rem; font-weight: 600;
+      cursor: pointer; transition: all .2s; margin-top: .6rem;
+    }
+    .btn-reset:hover { background: rgba(255,255,255,.05); color: var(--text); }
+
+    /* log */
+    .log-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 1.2rem;
+    }
+    .log-card h3 { font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .8rem; }
+    .log-inner {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .68rem; line-height: 1.9;
+      height: 200px; overflow-y: auto;
+      background: #050810; border-radius: 10px;
+      padding: .75rem .9rem;
+    }
+    .log-inner::-webkit-scrollbar { width: 3px; }
+    .log-inner::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 4px; }
+    .log-entry { display: flex; gap: .6rem; }
+    .log-t { color: #374151; flex-shrink: 0; }
+    .log-s { }
+
+    /* responsive */
+    @media (max-width: 768px) {
+      .page { grid-template-columns: 1fr; }
+      .panel-col { margin-top: 2rem; }
+      .order-card { position: static; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="page">
+
+  <!-- ── Header ──────────────────────────────────────────── -->
+  <header>
+    <div class="chip"><span class="chip-dot"></span>State Machine</div>
+    <h1>Order Lifecycle</h1>
+    <p>Every order transitions through a deterministic set of states — from creation to final delivery — driven by domain events and business rules.</p>
+  </header>
+
+  <!-- ── Timeline ─────────────────────────────────────────── -->
+  <div class="timeline-col" id="timeline"></div>
+
+  <!-- ── Right Panel ──────────────────────────────────────── -->
+  <div class="panel-col">
+
+    <div class="order-card">
+      <h3>📦 Live Order</h3>
+      <div class="order-id">#ORD-8821</div>
+      <div class="order-product">Standing Desk Pro · Oak + Black</div>
+
+      <div class="status-display" id="status-display">
+        <div class="label">Current Status</div>
+        <div class="value" id="status-value">—</div>
+      </div>
+
+      <div class="meta-grid">
+        <div class="meta-item"><div class="k">Customer</div><div class="v">Dhivy K.</div></div>
+        <div class="meta-item"><div class="k">Total</div><div class="v">₹14,999</div></div>
+        <div class="meta-item"><div class="k">Step</div><div class="v" id="meta-step">0 / 7</div></div>
+        <div class="meta-item"><div class="k">Events</div><div class="v" id="meta-events">0</div></div>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>Progress</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
+
+      <button class="btn-advance" id="btn-advance" onclick="advance()">▶ Advance State</button>
+      <button class="btn-reset" onclick="resetFlow()">↺ Reset Order</button>
+    </div>
+
+    <div class="log-card">
+      <h3>📋 Transition Log</h3>
+      <div class="log-inner" id="log-inner">
+        <div class="log-entry"><span class="log-t">──</span><span class="log-s" style="color:#374151">Waiting for first event…</span></div>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /page -->
+
+<script>
+/* ─── state definitions ─────────────────────────────────────── */
+const STATES = [
+  {
+    key: 'CREATED',
+    icon: '🆕',
+    title: 'Order Created',
+    desc: 'Customer completes checkout. Order record is persisted with a unique ID. Payment flow is not yet initiated.',
+    badge: 'Initial',
+    color: 'var(--c0)',
+    transition: 'onPaymentInitiated →',
+    logColor: '#94a3b8',
+  },
+  {
+    key: 'PAYMENT_PENDING',
+    icon: '⏳',
+    title: 'Awaiting Payment',
+    desc: 'Payment gateway session created. Order is locked awaiting confirmation from the payment processor.',
+    badge: 'Waiting',
+    color: 'var(--c1)',
+    transition: 'onPaymentConfirmed →',
+    logColor: '#fbbf24',
+  },
+  {
+    key: 'CONFIRMED',
+    icon: '✅',
+    title: 'Payment Confirmed',
+    desc: 'Payment gateway webhook received. Funds reserved. Inventory is decremented and warehouse is notified.',
+    badge: 'Paid',
+    color: 'var(--c2)',
+    transition: 'onFulfilmentStarted →',
+    logColor: '#34d399',
+  },
+  {
+    key: 'PROCESSING',
+    icon: '⚙️',
+    title: 'Order Processing',
+    desc: 'Warehouse team is packing the items. Shipping label generated. Carrier slot reserved for pickup.',
+    badge: 'Packing',
+    color: 'var(--c3)',
+    transition: 'onHandedToCarrier →',
+    logColor: '#60a5fa',
+  },
+  {
+    key: 'SHIPPED',
+    icon: '🚚',
+    title: 'Shipped',
+    desc: 'Package handed to carrier. Tracking number issued. Customer notified via email and SMS.',
+    badge: 'In Transit',
+    color: 'var(--c4)',
+    transition: 'onOutForDelivery →',
+    logColor: '#a78bfa',
+  },
+  {
+    key: 'OUT_FOR_DELIVERY',
+    icon: '🛵',
+    title: 'Out for Delivery',
+    desc: 'Package is with the local delivery agent. Expected at the customer's address within the day.',
+    badge: 'Last Mile',
+    color: 'var(--c5)',
+    transition: 'onDelivered →',
+    logColor: '#fb923c',
+  },
+  {
+    key: 'DELIVERED',
+    icon: '🎉',
+    title: 'Delivered',
+    desc: 'Package confirmed delivered. Proof of delivery captured. Order closed. Customer review requested.',
+    badge: 'Complete',
+    color: 'var(--c6)',
+    transition: null,
+    logColor: '#22d3ee',
+  },
+];
+
+/* ─── build timeline ─────────────────────────────────────────── */
+const timeline = document.getElementById('timeline');
+
+STATES.forEach((s, i) => {
+  // transition label above (except first)
+  if (i > 0) {
+    const tl = document.createElement('div');
+    tl.className = 'transition-label';
+    tl.id = `tlabel-${i}`;
+    tl.textContent = STATES[i - 1].transition;
+    timeline.appendChild(tl);
+  }
+
+  const row = document.createElement('div');
+  row.className = 'state-row';
+  row.id = `row-${i}`;
+  row.style.setProperty('--clr', s.color);
+
+  row.innerHTML = `
+    <div class="rail">
+      <div class="rail-dot" id="dot-${i}">
+        <span>${s.icon}</span>
+        <div class="tick-overlay">✓</div>
+      </div>
+      <div class="rail-line"></div>
+    </div>
+    <div class="state-card" id="card-${i}">
+      <div class="state-header">
+        <span class="state-name">${s.key}</span>
+        <span class="state-badge" id="badge-${i}">${s.badge}</span>
+      </div>
+      <div class="state-title">${s.title}</div>
+      <div class="state-desc">${s.desc}</div>
+    </div>
+  `;
+  timeline.appendChild(row);
+});
+
+/* ─── state machine ─────────────────────────────────────────── */
+let current = -1;
+let eventCount = 0;
+
+function ts() {
+  return new Date().toLocaleTimeString('en-GB', { hour12: false });
+}
+
+function log(msg, color = '#6b7280') {
+  const box = document.getElementById('log-inner');
+  // clear placeholder on first entry
+  if (eventCount === 1) box.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-t">[${ts()}]</span><span class="log-s" style="color:${color}">${msg}</span>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function updatePanel(idx) {
+  const s = STATES[idx];
+  const pct = Math.round(((idx + 1) / STATES.length) * 100);
+
+  // status display
+  const disp = document.getElementById('status-display');
+  disp.style.background = `color-mix(in srgb, ${s.color} 10%, transparent)`;
+  disp.style.borderColor = `color-mix(in srgb, ${s.color} 30%, transparent)`;
+  document.getElementById('status-value').style.color = s.color;
+  document.getElementById('status-value').textContent = s.key;
+
+  // meta
+  document.getElementById('meta-step').textContent = `${idx + 1} / ${STATES.length}`;
+  document.getElementById('meta-events').textContent = eventCount;
+
+  // progress
+  document.getElementById('progress-pct').textContent = pct + '%';
+  const fill = document.getElementById('progress-fill');
+  fill.style.width = pct + '%';
+  fill.style.background = `linear-gradient(90deg, ${STATES[0].color}, ${s.color})`;
+
+  // button
+  const btn = document.getElementById('btn-advance');
+  if (idx === STATES.length - 1) {
+    btn.disabled = true;
+    btn.textContent = '✅ Order Complete';
+  } else {
+    btn.disabled = false;
+    btn.textContent = `▶ ${STATES[idx].transition ? STATES[idx].transition.replace(' →', '') : 'Next'}`;
+  }
+}
+
+function applyRowClass(idx, cls) {
+  const row = document.getElementById(`row-${idx}`);
+  row.classList.remove('active', 'done');
+  if (cls) row.classList.add(cls);
+}
+
+function advance() {
+  if (current >= STATES.length - 1) return;
+
+  // mark previous as done
+  if (current >= 0) applyRowClass(current, 'done');
+
+  current++;
+  eventCount++;
+
+  applyRowClass(current, 'active');
+
+  // scroll row into view
+  document.getElementById(`row-${current}`).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const s = STATES[current];
+  log(`STATE → ${s.key}  (${s.title})`, s.logColor);
+  if (current > 0) {
+    log(`  ↳ via ${STATES[current - 1].transition}`, '#374151');
+  }
+
+  updatePanel(current);
+}
+
+function resetFlow() {
+  current = -1;
+  eventCount = 0;
+
+  for (let i = 0; i < STATES.length; i++) applyRowClass(i, '');
+
+  document.getElementById('status-value').textContent = '—';
+  document.getElementById('status-value').style.color = 'var(--text)';
+  document.getElementById('status-display').style.background = '';
+  document.getElementById('status-display').style.borderColor = '';
+  document.getElementById('meta-step').textContent = '0 / 7';
+  document.getElementById('meta-events').textContent = '0';
+  document.getElementById('progress-pct').textContent = '0%';
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('progress-fill').style.background = '';
+  const btn = document.getElementById('btn-advance');
+  btn.disabled = false;
+  btn.textContent = '▶ Advance State';
+  document.getElementById('log-inner').innerHTML =
+    `<div class="log-entry"><span class="log-t">──</span><span class="log-s" style="color:#374151">Waiting for first event…</span></div>`;
+}
+
+/* ─── canvas background ─────────────────────────────────────── */
+(function () {
+  const c = document.getElementById('bg-canvas');
+  const ctx = c.getContext('2d');
+  const particles = [];
+
+  function resize() { c.width = innerWidth; c.height = innerHeight; }
+
+  function init() {
+    resize();
+    particles.length = 0;
+    for (let i = 0; i < 80; i++) {
+      particles.push({
+        x: Math.random() * c.width,
+        y: Math.random() * c.height,
+        r: Math.random() * 1.2 + .2,
+        dx: (Math.random() - .5) * .15,
+        dy: (Math.random() - .5) * .15,
+        a: Math.random() * .6 + .1,
+      });
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, c.width, c.height);
+
+    // subtle grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+    ctx.lineWidth = 1;
+    const step = 60;
+    for (let x = 0; x < c.width; x += step) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, c.height); ctx.stroke();
+    }
+    for (let y = 0; y < c.height; y += step) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke();
+    }
+
+    particles.forEach(p => {
+      p.x += p.dx; p.y += p.dy;
+      if (p.x < 0) p.x = c.width;
+      if (p.x > c.width) p.x = 0;
+      if (p.y < 0) p.y = c.height;
+      if (p.y > c.height) p.y = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(148,163,184,${p.a})`;
+      ctx.fill();
+    });
+
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', init);
+  init(); draw();
+})();
+</script>
+</body>
+</html>

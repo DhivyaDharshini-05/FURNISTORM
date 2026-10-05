@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Furniture Fit Calculator — FURNISTORM</title>
+  <meta name="description" content="Real-time furniture fit calculator: input room and furniture dimensions to instantly see fit, clearance, and space utilization." />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #06080f;
+      --s1:      #0c1121;
+      --card:    #111827;
+      --border:  rgba(255,255,255,0.07);
+      --text:    #f1f5ff;
+      --muted:   #64748b;
+      --accent:  #6366f1;
+      --green:   #22c55e;
+      --amber:   #f59e0b;
+      --red:     #ef4444;
+      --cyan:    #06b6d4;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── mesh bg ─────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 60% 50% at 20% 20%, rgba(99,102,241,.08) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 60% at 80% 80%, rgba(6,182,212,.06) 0%, transparent 70%);
+    }
+
+    /* ── layout ──────────────────────────── */
+    .app {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 3rem;
+      gap: 2rem;
+    }
+
+    /* ── header ──────────────────────────── */
+    .hdr { text-align: center; }
+    .hdr-chip {
+      display: inline-flex; align-items: center; gap: .45rem;
+      font-size: .65rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+      padding: .28rem .85rem; border-radius: 999px;
+      background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.25);
+      color: #818cf8; margin-bottom: 1rem;
+    }
+    .hdr-chip::before { content:''; width:5px; height:5px; border-radius:50%; background:#818cf8; animation: blink 1.6s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
+
+    .hdr h1 {
+      font-size: clamp(1.8rem, 3.5vw, 2.9rem); font-weight: 900; line-height: 1.1;
+      background: linear-gradient(135deg, #f1f5ff 0%, #818cf8 50%, #06b6d4 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: .7rem;
+    }
+    .hdr p { color: var(--muted); font-size: .88rem; max-width: 460px; margin: 0 auto; line-height: 1.75; }
+
+    /* ── 3-col main ──────────────────────── */
+    .main {
+      display: grid;
+      grid-template-columns: 280px 1fr 280px;
+      gap: 1.4rem;
+      align-items: start;
+    }
+
+    /* ── panels ──────────────────────────── */
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.4rem;
+    }
+    .panel-title {
+      font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 1.2rem; display: flex; align-items: center; gap: .5rem;
+    }
+    .panel-title span { font-size: .9rem; }
+
+    /* ── slider group ────────────────────── */
+    .dim-group { margin-bottom: 1.5rem; }
+    .dim-group:last-child { margin-bottom: 0; }
+    .dim-label {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: .75rem; font-weight: 600; color: var(--text);
+      margin-bottom: .6rem;
+    }
+    .dim-label .unit {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .72rem; font-weight: 600;
+      color: var(--accent); background: rgba(99,102,241,.12);
+      padding: .15rem .45rem; border-radius: 6px;
+      min-width: 48px; text-align: center;
+    }
+
+    .range-wrap { position: relative; }
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 4px; border-radius: 99px;
+      background: var(--border); outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid var(--bg);
+      box-shadow: 0 0 8px rgba(99,102,241,.6);
+      cursor: pointer; transition: transform .15s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+    .range-minmax { display: flex; justify-content: space-between; font-size: .6rem; color: var(--muted); margin-top: .35rem; }
+
+    /* section divider */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 1.4rem 0; }
+
+    /* ── canvas zone ─────────────────────── */
+    .canvas-zone {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.4rem;
+      display: flex; flex-direction: column; gap: 1rem;
+    }
+    .canvas-zone-top { display: flex; justify-content: space-between; align-items: center; }
+    .canvas-title { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+    .fit-pill {
+      display: inline-flex; align-items: center; gap: .4rem;
+      font-size: .7rem; font-weight: 700; letter-spacing: .06em;
+      padding: .3rem .75rem; border-radius: 999px;
+      transition: all .35s;
+    }
+    .fit-pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    #room-canvas {
+      width: 100%; border-radius: 14px;
+      background: #080d1a;
+      border: 1px solid rgba(255,255,255,.05);
+      display: block;
+      cursor: crosshair;
+    }
+
+    /* legend */
+    .legend { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: .4rem; font-size: .67rem; color: var(--muted); }
+    .legend-dot  { width: 10px; height: 10px; border-radius: 3px; }
+
+    /* ── results panel ───────────────────── */
+    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-bottom: 1.2rem; }
+    .res-card {
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 14px; padding: .9rem .9rem .75rem;
+      text-align: center; transition: border-color .35s;
+    }
+    .res-card .rv {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.15rem; font-weight: 700; line-height: 1; margin-bottom: .3rem;
+      transition: color .35s;
+    }
+    .res-card .rk { font-size: .6rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+
+    /* clearance bars */
+    .clr-section { margin-bottom: 1.2rem; }
+    .clr-label { font-size: .65rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .8rem; }
+
+    .clr-bar-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .55rem; }
+    .clr-bar-name { font-size: .68rem; color: var(--muted); width: 36px; flex-shrink: 0; }
+    .clr-bar-track { flex: 1; height: 7px; background: var(--border); border-radius: 99px; overflow: hidden; }
+    .clr-bar-fill  { height: 100%; border-radius: 99px; transition: width .45s cubic-bezier(.4,0,.2,1), background .35s; }
+    .clr-bar-val { font-family: 'JetBrains Mono', monospace; font-size: .65rem; color: var(--text); width: 44px; text-align: right; flex-shrink: 0; }
+
+    /* utilization ring */
+    .util-ring-wrap { display: flex; justify-content: center; margin: .8rem 0 1rem; }
+    .util-ring { position: relative; width: 90px; height: 90px; }
+    .util-ring svg { transform: rotate(-90deg); }
+    .util-ring .ring-bg  { fill: none; stroke: var(--border); stroke-width: 8; }
+    .util-ring .ring-fill { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset .5s cubic-bezier(.4,0,.2,1), stroke .35s; }
+    .util-ring .ring-text {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+    }
+    .util-ring .ring-pct  { font-family: 'JetBrains Mono', monospace; font-size: .95rem; font-weight: 700; line-height: 1; }
+    .util-ring .ring-sub  { font-size: .55rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: .2rem; }
+
+    /* advice */
+    .advice {
+      font-size: .74rem; line-height: 1.65; color: var(--muted);
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 12px; padding: .85rem 1rem;
+      transition: border-color .35s;
+    }
+    .advice strong { color: var(--text); }
+
+    /* responsive */
+    @media (max-width: 900px) {
+      .main { grid-template-columns: 1fr; }
+      .canvas-zone { order: -1; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ───────────────────────────────────── -->
+  <header class="hdr">
+    <div class="hdr-chip">🛋️ Furnistorm Tool</div>
+    <h1>Furniture Fit Calculator</h1>
+    <p>Input your room and furniture dimensions to instantly compute clearance, fit status, and space utilisation.</p>
+  </header>
+
+  <!-- ── Main 3-col ────────────────────────────────── -->
+  <div class="main">
+
+    <!-- ── LEFT: inputs ──────────────────────────── -->
+    <div class="panel">
+      <div class="panel-title"><span>🏠</span> Room Dimensions</div>
+
+      <div class="dim-group">
+        <div class="dim-label">Width <span class="unit" id="lbl-rw">400 cm</span></div>
+        <div class="range-wrap">
+          <input type="range" id="room-w" min="100" max="1200" value="400" step="5" oninput="update()" />
+          <div class="range-minmax"><span>100 cm</span><span>1200 cm</span></div>
+        </div>
+      </div>
+
+      <div class="dim-group">
+        <div class="dim-label">Length <span class="unit" id="lbl-rl">500 cm</span></div>
+        <div class="range-wrap">
+          <input type="range" id="room-l" min="100" max="1200" value="500" step="5" oninput="update()" />
+          <div class="range-minmax"><span>100 cm</span><span>1200 cm</span></div>
+        </div>
+      </div>
+
+      <hr class="divider" />
+      <div class="panel-title"><span>🪑</span> Furniture Dimensions</div>
+
+      <div class="dim-group">
+        <div class="dim-label">Width <span class="unit" id="lbl-fw">180 cm</span></div>
+        <div class="range-wrap">
+          <input type="range" id="fur-w" min="20" max="800" value="180" step="5" oninput="update()" />
+          <div class="range-minmax"><span>20 cm</span><span>800 cm</span></div>
+        </div>
+      </div>
+
+      <div class="dim-group">
+        <div class="dim-label">Depth <span class="unit" id="lbl-fd">90 cm</span></div>
+        <div class="range-wrap">
+          <input type="range" id="fur-d" min="10" max="800" value="90" step="5" oninput="update()" />
+          <div class="range-minmax"><span>10 cm</span><span>800 cm</span></div>
+        </div>
+      </div>
+
+      <hr class="divider" />
+      <div class="panel-title"><span>📐</span> Min. Walkway</div>
+
+      <div class="dim-group">
+        <div class="dim-label">Clearance <span class="unit" id="lbl-mc">60 cm</span></div>
+        <div class="range-wrap">
+          <input type="range" id="min-clr" min="0" max="200" value="60" step="5" oninput="update()" />
+          <div class="range-minmax"><span>0 cm</span><span>200 cm</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CENTER: canvas ─────────────────────────── -->
+    <div class="canvas-zone">
+      <div class="canvas-zone-top">
+        <div class="canvas-title">Top-Down View</div>
+        <div class="fit-pill" id="fit-pill">
+          <div class="dot"></div>
+          <span id="fit-text">—</span>
+        </div>
+      </div>
+
+      <canvas id="room-canvas" height="460"></canvas>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#1e3a2e"></div> Room</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#4f46e5"></div> Furniture</div>
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(245,158,11,.15)"></div> Min. walkway</div>
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(6,182,212,.12)"></div> Clearance</div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: results ────────────────────────── -->
+    <div class="panel">
+      <div class="panel-title"><span>📊</span> Fit Analysis</div>
+
+      <div class="result-grid">
+        <div class="res-card">
+          <div class="rv" id="rv-area">—</div>
+          <div class="rk">Room Area</div>
+        </div>
+        <div class="res-card">
+          <div class="rv" id="rv-farea">—</div>
+          <div class="rk">Furniture</div>
+        </div>
+        <div class="res-card">
+          <div class="rv" id="rv-fits">—</div>
+          <div class="rk">Pieces Fit</div>
+        </div>
+        <div class="res-card">
+          <div class="rv" id="rv-free">—</div>
+          <div class="rk">Free Area</div>
+        </div>
+      </div>
+
+      <!-- Utilisation ring -->
+      <div class="util-ring-wrap">
+        <div class="util-ring">
+          <svg viewBox="0 0 90 90" width="90" height="90">
+            <circle class="ring-bg" cx="45" cy="45" r="37" />
+            <circle class="ring-fill" id="ring-fill" cx="45" cy="45" r="37"
+              stroke-dasharray="232.48" stroke-dashoffset="232.48" />
+          </svg>
+          <div class="ring-text">
+            <div class="ring-pct" id="ring-pct">0%</div>
+            <div class="ring-sub">Used</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clearance bars -->
+      <div class="clr-section">
+        <div class="clr-label">Clearance</div>
+        <div class="clr-bar-row">
+          <div class="clr-bar-name">Left</div>
+          <div class="clr-bar-track"><div class="clr-bar-fill" id="bar-left"></div></div>
+          <div class="clr-bar-val" id="val-left">—</div>
+        </div>
+        <div class="clr-bar-row">
+          <div class="clr-bar-name">Right</div>
+          <div class="clr-bar-track"><div class="clr-bar-fill" id="bar-right"></div></div>
+          <div class="clr-bar-val" id="val-right">—</div>
+        </div>
+        <div class="clr-bar-row">
+          <div class="clr-bar-name">Front</div>
+          <div class="clr-bar-track"><div class="clr-bar-fill" id="bar-front"></div></div>
+          <div class="clr-bar-val" id="val-front">—</div>
+        </div>
+        <div class="clr-bar-row">
+          <div class="clr-bar-name">Back</div>
+          <div class="clr-bar-track"><div class="clr-bar-fill" id="bar-back"></div></div>
+          <div class="clr-bar-val" id="val-back">—</div>
+        </div>
+      </div>
+
+      <!-- advice -->
+      <div class="advice" id="advice">
+        Adjust dimensions to see fit analysis.
+      </div>
+    </div>
+
+  </div><!-- /main -->
+
+</div><!-- /app -->
+
+<script>
+const canvas = document.getElementById('room-canvas');
+const ctx = canvas.getContext('2d');
+const CIRC = 2 * Math.PI * 37; // ring circumference
+
+// Furniture offset (centered by default — can extend later)
+let furX = 0.5, furY = 0.5; // relative anchor in room (0..1)
+
+/* ── helpers ───────────────────────────────────────────── */
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function clrColor(v, min) {
+  if (v < 0) return '#ef4444';
+  if (v < min) return '#f59e0b';
+  return '#22c55e';
+}
+function barPct(v, max) { return clamp((v / max) * 100, 0, 100) + '%'; }
+
+/* ── update loop ───────────────────────────────────────── */
+function update() {
+  const rw  = +document.getElementById('room-w').value;
+  const rl  = +document.getElementById('room-l').value;
+  const fw  = +document.getElementById('fur-w').value;
+  const fd  = +document.getElementById('fur-d').value;
+  const mc  = +document.getElementById('min-clr').value;
+
+  // labels
+  document.getElementById('lbl-rw').textContent = rw + ' cm';
+  document.getElementById('lbl-rl').textContent = rl + ' cm';
+  document.getElementById('lbl-fw').textContent = fw + ' cm';
+  document.getElementById('lbl-fd').textContent = fd + ' cm';
+  document.getElementById('lbl-mc').textContent = mc + ' cm';
+
+  // fit calc
+  const fits    = fw <= rw && fd <= rl;
+  const clLeft  = Math.round((rw - fw) / 2);
+  const clRight = rw - fw - clLeft;
+  const clFront = Math.round((rl - fd) / 2);
+  const clBack  = rl - fd - clFront;
+
+  const clrOk = clLeft >= mc && clRight >= mc && clFront >= mc && clBack >= mc;
+  const rArea  = (rw * rl / 10000).toFixed(2);
+  const fArea  = (fw * fd / 10000).toFixed(2);
+  const util   = fits ? clamp((fw * fd) / (rw * rl) * 100, 0, 100) : 100;
+  const free   = fits ? ((rw * rl - fw * fd) / 10000).toFixed(2) : '—';
+  const piecesWide = fits ? Math.floor(rw / fw) : 0;
+  const piecesDeep = fits ? Math.floor(rl / fd) : 0;
+  const pieces  = piecesWide * piecesDeep;
+
+  /* ── DOM updates ─────────────────────── */
+  document.getElementById('rv-area').textContent  = rArea + ' m²';
+  document.getElementById('rv-farea').textContent = fArea + ' m²';
+  document.getElementById('rv-fits').textContent  = fits ? pieces : '0';
+  document.getElementById('rv-free').textContent  = fits ? free + ' m²' : '—';
+
+  // ring
+  const ringPct = Math.round(util);
+  const ringColor = util > 80 ? '#ef4444' : util > 55 ? '#f59e0b' : '#22c55e';
+  const offset = CIRC * (1 - util / 100);
+  document.getElementById('ring-fill').style.strokeDashoffset = offset;
+  document.getElementById('ring-fill').style.stroke = ringColor;
+  document.getElementById('ring-pct').textContent = ringPct + '%';
+  document.getElementById('ring-pct').style.color = ringColor;
+
+  // clearance bars
+  const maxClr = Math.max(clLeft, clRight, clFront, clBack, mc, 1);
+  function setBar(id, vid, v) {
+    const col = clrColor(v, mc);
+    document.getElementById('bar-' + id).style.width = barPct(Math.max(v, 0), maxClr);
+    document.getElementById('bar-' + id).style.background = col;
+    document.getElementById('val-' + id).textContent = (fits ? v + ' cm' : '—');
+    document.getElementById('val-' + id).style.color = fits ? col : 'var(--muted)';
+  }
+  setBar('left',  'val-left',  clLeft);
+  setBar('right', 'val-right', clRight);
+  setBar('front', 'val-front', clFront);
+  setBar('back',  'val-back',  clBack);
+
+  // fit pill
+  const pill = document.getElementById('fit-pill');
+  const dot  = pill.querySelector('.dot');
+  const txt  = document.getElementById('fit-text');
+  if (!fits) {
+    pill.style.cssText = 'background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#f87171;border-radius:999px;padding:.3rem .75rem;font-size:.7rem;font-weight:700;display:inline-flex;align-items:center;gap:.4rem;transition:all .35s;';
+    dot.style.background  = '#ef4444';
+    txt.textContent = "Doesn't Fit";
+  } else if (!clrOk) {
+    pill.style.cssText = 'background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);color:#fbbf24;border-radius:999px;padding:.3rem .75rem;font-size:.7rem;font-weight:700;display:inline-flex;align-items:center;gap:.4rem;transition:all .35s;';
+    dot.style.background  = '#f59e0b';
+    txt.textContent = 'Tight Fit';
+  } else {
+    pill.style.cssText = 'background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80;border-radius:999px;padding:.3rem .75rem;font-size:.7rem;font-weight:700;display:inline-flex;align-items:center;gap:.4rem;transition:all .35s;';
+    dot.style.background  = '#22c55e';
+    txt.textContent = 'Fits Well';
+  }
+
+  // advice
+  let adv = '';
+  if (!fits) {
+    adv = `<strong>⚠️ Doesn't fit.</strong> The furniture (${fw}×${fd} cm) exceeds the room (${rw}×${rl} cm). Reduce furniture size or choose a larger room.`;
+  } else if (!clrOk) {
+    const issues = [];
+    if (clLeft < mc)  issues.push(`left (${clLeft} cm)`);
+    if (clRight < mc) issues.push(`right (${clRight} cm)`);
+    if (clFront < mc) issues.push(`front (${clFront} cm)`);
+    if (clBack < mc)  issues.push(`back (${clBack} cm)`);
+    adv = `<strong>⚡ Tight on:</strong> ${issues.join(', ')}. Minimum walkway of ${mc} cm is recommended for ergonomic access.`;
+  } else {
+    adv = `<strong>✅ Great fit!</strong> The furniture sits comfortably with ≥${mc} cm clearance on all sides. Space utilisation is ${ringPct}%.`;
+    if (pieces > 1) adv += ` Up to <strong>${pieces} units</strong> (${piecesWide}×${piecesDeep}) can tile this room.`;
+  }
+  document.getElementById('advice').innerHTML = adv;
+
+  /* ── canvas ──────────────────────────── */
+  drawRoom(rw, rl, fw, fd, mc, fits, clLeft, clFront);
+}
+
+/* ── canvas renderer ───────────────────────────────────── */
+function drawRoom(rw, rl, fw, fd, mc, fits, clL, clF) {
+  const W = canvas.offsetWidth || 600;
+  canvas.width  = W;
+  canvas.height = Math.round(W * 0.62);
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD = 40; // canvas padding
+  const scale = Math.min((W - PAD * 2) / rw, (H - PAD * 2) / rl);
+
+  const roomW = rw * scale;
+  const roomH = rl * scale;
+  const ox = (W - roomW) / 2;
+  const oy = (H - roomH) / 2;
+
+  /* grid inside room */
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ox, oy, roomW, roomH);
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,.03)';
+  ctx.lineWidth = 1;
+  const gs = Math.max(20 * scale, 20);
+  for (let x = ox; x < ox + roomW; x += gs) { ctx.beginPath(); ctx.moveTo(x, oy); ctx.lineTo(x, oy + roomH); ctx.stroke(); }
+  for (let y = oy; y < oy + roomH; y += gs) { ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + roomW, y); ctx.stroke(); }
+  ctx.restore();
+
+  /* room fill */
+  ctx.fillStyle = '#0f1e14';
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 2;
+  roundRect(ctx, ox, oy, roomW, roomH, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  /* room dimensions labels */
+  ctx.fillStyle = '#22c55e';
+  ctx.font = `600 ${Math.max(10,Math.min(13,roomW/14))}px Inter`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`${rw} cm`, ox + roomW / 2, oy - 10);
+  ctx.save(); ctx.translate(ox - 12, oy + roomH / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText(`${rl} cm`, 0, 0); ctx.restore();
+
+  if (!fits) {
+    /* just show room with X */
+    const furW = Math.min(fw * scale, roomW);
+    const furH = Math.min(fd * scale, roomH);
+    const fx = ox + (roomW - furW) / 2;
+    const fy = oy + (roomH - furH) / 2;
+    ctx.fillStyle   = 'rgba(239,68,68,.18)';
+    ctx.strokeStyle = 'rgba(239,68,68,.7)';
+    ctx.lineWidth   = 2;
+    roundRect(ctx, fx, fy, Math.min(furW, roomW), Math.min(furH, roomH), 4);
+    ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(239,68,68,.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(fx+4, fy+4); ctx.lineTo(fx+Math.min(furW,roomW)-4, fy+Math.min(furH,roomH)-4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(fx+Math.min(furW,roomW)-4, fy+4); ctx.lineTo(fx+4, fy+Math.min(furH,roomH)-4); ctx.stroke();
+    return;
+  }
+
+  const furW = fw * scale;
+  const furH = fd * scale;
+  const fx = ox + clL * scale;
+  const fy = oy + clF * scale;
+
+  /* min walkway zone (behind furniture, shaded) */
+  const mcS = mc * scale;
+  if (mc > 0) {
+    ctx.fillStyle = 'rgba(245,158,11,.07)';
+    const zx = Math.max(ox, fx - mcS);
+    const zy = Math.max(oy, fy - mcS);
+    const zw = Math.min(roomW, furW + mcS * 2 + (fx - mcS < ox ? fx - mcS - ox : 0));
+    const zh = Math.min(roomH, furH + mcS * 2 + (fy - mcS < oy ? fy - mcS - oy : 0));
+    roundRect(ctx, zx, zy, Math.min(zw, ox + roomW - zx), Math.min(zh, oy + roomH - zy), 6);
+    ctx.fill();
+  }
+
+  /* clearance region */
+  ctx.fillStyle = 'rgba(6,182,212,.07)';
+  roundRect(ctx, ox, oy, roomW, roomH, 6);
+  ctx.fill();
+
+  /* furniture */
+  const gradient = ctx.createLinearGradient(fx, fy, fx + furW, fy + furH);
+  gradient.addColorStop(0,   '#4f46e5');
+  gradient.addColorStop(1,   '#7c3aed');
+  ctx.fillStyle   = gradient;
+  ctx.strokeStyle = '#818cf8';
+  ctx.lineWidth   = 1.5;
+  roundRect(ctx, fx, fy, furW, furH, 5);
+  ctx.fill(); ctx.stroke();
+
+  /* furniture label */
+  ctx.fillStyle = 'rgba(255,255,255,.7)';
+  ctx.font = `600 ${clamp(furW / 8, 9, 13)}px Inter`;
+  ctx.textAlign = 'center';
+  if (furW > 40 && furH > 22) {
+    ctx.fillText(`${fw}×${fd}`, fx + furW / 2, fy + furH / 2 + 4);
+  }
+
+  /* clearance arrows */
+  drawArrow(ctx, fx, oy + roomH / 2, ox, oy + roomH / 2, clL, true);          // left
+  drawArrow(ctx, fx + furW, oy + roomH / 2, ox + roomW, oy + roomH / 2, rw - fw - clL, true); // right
+  drawArrow(ctx, ox + roomW / 2, fy, ox + roomW / 2, oy, clF, false);           // back
+  drawArrow(ctx, ox + roomW / 2, fy + furH, ox + roomW / 2, oy + roomH, rl - fd - clF, false); // front
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, label, horiz) {
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+  if (dist < 10) return;
+  const mc = +document.getElementById('min-clr').value;
+  const numLabel = Math.round(label);
+  const col = numLabel < 0 ? '#ef4444' : numLabel < mc ? '#f59e0b' : '#06b6d4';
+
+  ctx.save();
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // arrowheads
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const ah = 6;
+  [{ x: x1, y: y1, a: angle + Math.PI }, { x: x2, y: y2, a: angle }].forEach(({ x, y, a }) => {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - ah * Math.cos(a - .4), y - ah * Math.sin(a - .4));
+    ctx.lineTo(x - ah * Math.cos(a + .4), y - ah * Math.sin(a + .4));
+    ctx.closePath(); ctx.fill();
+  });
+
+  // label
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  ctx.font = `600 10px JetBrains Mono, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const txt = numLabel + ' cm';
+  const tw = ctx.measureText(txt).width;
+  ctx.fillStyle = 'rgba(6,8,15,.75)';
+  const bx = horiz ? mx - tw / 2 - 3 : mx - 22;
+  const by = horiz ? my - 8  : my - 7;
+  ctx.fillRect(bx, by, horiz ? tw + 6 : 44, 14);
+  ctx.fillStyle = col;
+  ctx.fillText(txt, horiz ? mx : mx - 22 + 22, my);
+
+  ctx.restore();
+}
+
+// handle resize
+let raf;
+window.addEventListener('resize', () => {
+  clearTimeout(raf);
+  raf = setTimeout(update, 80);
+});
+
+update();
+</script>
+</body>
+</html>

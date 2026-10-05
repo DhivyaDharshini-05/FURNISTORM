@@ -1,0 +1,144 @@
+.navbar {
+  background-color: var(--white);
+  box-shadow: var(--shadow);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 75px;
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--primary-color);
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+
+.logo span {
+  color: var(--secondary-color);
+}
+
+.navCenter {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  flex: 1;
+  justify-content: center;
+}
+
+.navLinks {
+  display: flex;
+  gap: 20px;
+}
+
+.navLinks a {
+  font-weight: 500;
+  color: var(--text-color);
+  transition: var(--transition);
+  font-size: 0.95rem;
+}
+
+.navLinks a:hover {
+  color: var(--secondary-color);
+}
+
+.searchForm {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-color);
+  border-radius: 20px;
+  padding: 5px 15px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.searchInput {
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: 5px;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.searchBtn {
+  color: var(--light-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.searchBtn:hover {
+  color: var(--primary-color);
+}
+
+.navIcons {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+.iconLink {
+  color: var(--text-color);
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+}
+
+.iconLink:hover {
+  color: var(--secondary-color);
+}
+
+.userMenu {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 15px;
+}
+
+.mobileToggle {
+  display: none;
+  color: var(--text-color);
+}
+
+@media (max-width: 900px) {
+  .navCenter {
+    display: none;
+  }
+  
+  .navCenter.mobileOpen {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 75px;
+    left: 0;
+    right: 0;
+    background: var(--white);
+    padding: 20px;
+    box-shadow: 0 10px 10px rgba(0,0,0,0.1);
+    align-items: stretch;
+    gap: 20px;
+  }
+
+  .navLinks {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .searchForm {
+    max-width: 100%;
+  }
+
+  .mobileToggle {
+    display: flex;
+  }
+}

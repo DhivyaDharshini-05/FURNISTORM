@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transactional Outbox Pattern</title>
+  <meta name="description" content="Animated visualization of the Transactional Outbox Pattern: Payment → PostgreSQL → Outbox → RabbitMQ → Order Consumer" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #090e1a;
+      --surface:   #0f1729;
+      --card:      #131c30;
+      --border:    rgba(99,179,237,0.15);
+      --text:      #e2e8f0;
+      --muted:     #718096;
+      --accent:    #63b3ed;
+
+      --green:     #48bb78;
+      --blue:      #4299e1;
+      --purple:    #9f7aea;
+      --orange:    #ed8936;
+      --teal:      #38b2ac;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    #stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+    .page { position: relative; z-index: 1; padding: 2rem 1.5rem 4rem; max-width: 1100px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 3.5rem; }
+    .badge {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: rgba(99,179,237,.1); border: 1px solid rgba(99,179,237,.25);
+      color: var(--accent); font-size: .72rem; font-weight: 600; letter-spacing: .12em;
+      text-transform: uppercase; padding: .35rem .9rem; border-radius: 999px;
+      margin-bottom: 1.2rem;
+    }
+    .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse-dot 1.4s ease-in-out infinite; }
+    @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.6)} }
+
+    header h1 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 800;
+      background: linear-gradient(135deg, #e2e8f0 0%, #63b3ed 60%, #9f7aea 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      line-height: 1.2; margin-bottom: .8rem;
+    }
+    header p { color: var(--muted); font-size: .95rem; max-width: 520px; margin: 0 auto; line-height: 1.7; }
+
+    .pipeline { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+    .node {
+      width: 100%; max-width: 640px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.5rem 1.8rem;
+      transition: transform .25s, box-shadow .25s;
+    }
+    .node:hover { transform: translateY(-3px); }
+    .node-inner { display: flex; align-items: center; gap: 1.2rem; }
+
+    .node-icon {
+      width: 56px; height: 56px; border-radius: 14px;
+      display: grid; place-items: center; flex-shrink: 0; font-size: 1.6rem;
+    }
+
+    .node-body { flex: 1; min-width: 0; }
+    .node-label { font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; margin-bottom: .25rem; }
+    .node-title { font-size: 1.1rem; font-weight: 700; }
+    .node-desc  { font-size: .8rem; color: var(--muted); margin-top: .3rem; line-height: 1.5; }
+
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; transition: background .3s; opacity: .3; }
+
+    .tags { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .75rem; }
+    .tag { font-family: 'JetBrains Mono', monospace; font-size: .65rem; padding: .2rem .55rem; border-radius: 6px; font-weight: 600; }
+
+    /* Payment */
+    .n-payment { box-shadow: 0 0 0 1px rgba(72,187,120,.2), 0 8px 32px rgba(72,187,120,.08); }
+    .n-payment:hover { box-shadow: 0 0 0 1px rgba(72,187,120,.4), 0 16px 48px rgba(72,187,120,.18); }
+    .n-payment .node-icon { background: rgba(72,187,120,.12); border: 1px solid rgba(72,187,120,.25); }
+    .n-payment .node-label, .n-payment .node-title { color: var(--green); }
+    .n-payment .status-dot { background: var(--green); }
+    .n-payment .tag { background: rgba(72,187,120,.1); color: var(--green); border: 1px solid rgba(72,187,120,.2); }
+
+    /* Postgres */
+    .n-postgres { box-shadow: 0 0 0 1px rgba(66,153,225,.2), 0 8px 32px rgba(66,153,225,.08); }
+    .n-postgres:hover { box-shadow: 0 0 0 1px rgba(66,153,225,.4), 0 16px 48px rgba(66,153,225,.18); }
+    .n-postgres .node-icon { background: rgba(66,153,225,.12); border: 1px solid rgba(66,153,225,.25); }
+    .n-postgres .node-label, .n-postgres .node-title { color: var(--blue); }
+    .n-postgres .status-dot { background: var(--blue); }
+    .n-postgres .tag { background: rgba(66,153,225,.1); color: var(--blue); border: 1px solid rgba(66,153,225,.2); }
+
+    /* Outbox */
+    .n-outbox { box-shadow: 0 0 0 1px rgba(159,122,234,.2), 0 8px 32px rgba(159,122,234,.08); }
+    .n-outbox:hover { box-shadow: 0 0 0 1px rgba(159,122,234,.4), 0 16px 48px rgba(159,122,234,.18); }
+    .n-outbox .node-icon { background: rgba(159,122,234,.12); border: 1px solid rgba(159,122,234,.25); }
+    .n-outbox .node-label, .n-outbox .node-title { color: var(--purple); }
+    .n-outbox .status-dot { background: var(--purple); }
+    .n-outbox .tag { background: rgba(159,122,234,.1); color: var(--purple); border: 1px solid rgba(159,122,234,.2); }
+
+    /* RabbitMQ */
+    .n-rabbit { box-shadow: 0 0 0 1px rgba(237,137,54,.2), 0 8px 32px rgba(237,137,54,.08); }
+    .n-rabbit:hover { box-shadow: 0 0 0 1px rgba(237,137,54,.4), 0 16px 48px rgba(237,137,54,.18); }
+    .n-rabbit .node-icon { background: rgba(237,137,54,.12); border: 1px solid rgba(237,137,54,.25); }
+    .n-rabbit .node-label, .n-rabbit .node-title { color: var(--orange); }
+    .n-rabbit .status-dot { background: var(--orange); }
+    .n-rabbit .tag { background: rgba(237,137,54,.1); color: var(--orange); border: 1px solid rgba(237,137,54,.2); }
+
+    /* Consumer */
+    .n-consumer { box-shadow: 0 0 0 1px rgba(56,178,172,.2), 0 8px 32px rgba(56,178,172,.08); }
+    .n-consumer:hover { box-shadow: 0 0 0 1px rgba(56,178,172,.4), 0 16px 48px rgba(56,178,172,.18); }
+    .n-consumer .node-icon { background: rgba(56,178,172,.12); border: 1px solid rgba(56,178,172,.25); }
+    .n-consumer .node-label, .n-consumer .node-title { color: var(--teal); }
+    .n-consumer .status-dot { background: var(--teal); }
+    .n-consumer .tag { background: rgba(56,178,172,.1); color: var(--teal); border: 1px solid rgba(56,178,172,.2); }
+
+    /* Connector */
+    .connector {
+      display: flex; flex-direction: column; align-items: center;
+      width: 100%; max-width: 640px; padding: .1rem 0;
+    }
+    .connector-line {
+      width: 2px; height: 46px;
+      background: linear-gradient(to bottom, transparent, var(--accent), transparent);
+      position: relative; overflow: hidden;
+    }
+    .connector-line::after {
+      content: ''; position: absolute; top: -100%; left: 0; right: 0; height: 100%;
+      background: linear-gradient(to bottom, transparent, #fff 40%, transparent);
+      animation: flow-line 1.8s linear infinite;
+    }
+    @keyframes flow-line {
+      0%   { top: -100%; opacity: 0; }
+      20%  { opacity: 1; }
+      80%  { opacity: 1; }
+      100% { top: 200%; opacity: 0; }
+    }
+    .connector-arrow {
+      width: 0; height: 0;
+      border-left: 7px solid transparent; border-right: 7px solid transparent;
+      border-top: 10px solid var(--accent);
+      filter: drop-shadow(0 0 4px var(--accent));
+    }
+    .connector-label {
+      font-size: .65rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--accent); background: rgba(99,179,237,.08); border: 1px solid rgba(99,179,237,.18);
+      padding: .2rem .6rem; border-radius: 6px; margin: .3rem 0;
+    }
+
+    /* Log */
+    .log-section { margin-top: 3rem; max-width: 640px; margin-left: auto; margin-right: auto; }
+    .log-section h2 { font-size: .75rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .75rem; }
+    .log-box {
+      background: #070c17; border: 1px solid rgba(99,179,237,.12); border-radius: 14px;
+      padding: 1rem 1.2rem; font-family: 'JetBrains Mono', monospace; font-size: .72rem;
+      line-height: 1.8; height: 160px; overflow-y: auto; scroll-behavior: smooth;
+    }
+    .log-box::-webkit-scrollbar { width: 4px; }
+    .log-box::-webkit-scrollbar-thumb { background: rgba(99,179,237,.2); border-radius: 4px; }
+    .log-line { display: flex; gap: .6rem; }
+    .log-time { color: #4a5568; flex-shrink: 0; }
+    .log-msg  { color: var(--muted); }
+    .log-msg.green  { color: var(--green);  }
+    .log-msg.blue   { color: var(--blue);   }
+    .log-msg.purple { color: var(--purple); }
+    .log-msg.orange { color: var(--orange); }
+    .log-msg.teal   { color: var(--teal);   }
+
+    /* Controls */
+    .controls { display: flex; justify-content: center; gap: 1rem; margin-top: 2rem; flex-wrap: wrap; }
+    .btn {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .65rem 1.4rem; border-radius: 10px;
+      font-family: 'Inter', sans-serif; font-size: .82rem; font-weight: 600;
+      cursor: pointer; border: none; transition: all .2s;
+    }
+    .btn-primary { background: linear-gradient(135deg, #3b82f6, #7c3aed); color: #fff; box-shadow: 0 4px 20px rgba(99,102,241,.35); }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(99,102,241,.5); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .btn-secondary { background: rgba(255,255,255,.06); color: var(--text); border: 1px solid rgba(255,255,255,.1); }
+    .btn-secondary:hover { background: rgba(255,255,255,.1); transform: translateY(-1px); }
+
+    /* Stats */
+    .info-strip {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1rem; margin-top: 3rem; max-width: 640px; margin-left: auto; margin-right: auto;
+    }
+    .info-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.1rem; text-align: center; }
+    .info-card .val { font-size: 1.5rem; font-weight: 800; }
+    .info-card .lbl { font-size: .68rem; color: var(--muted); margin-top: .2rem; text-transform: uppercase; letter-spacing: .08em; }
+
+    @media (max-width: 480px) {
+      .node { padding: 1rem 1.2rem; }
+      .node-icon { width: 44px; height: 44px; font-size: 1.3rem; border-radius: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="stars"></canvas>
+
+<div class="page">
+  <header>
+    <div class="badge">📦 Distributed Systems Pattern</div>
+    <h1>Transactional Outbox Pattern</h1>
+    <p>Guarantees at-least-once event delivery by atomically writing events to an outbox table alongside business data, then relaying them to the message broker.</p>
+  </header>
+
+  <div class="pipeline" id="pipeline">
+
+    <!-- 1. Payment Success -->
+    <div class="node n-payment" id="node-payment">
+      <div class="node-inner">
+        <div class="node-icon">💳</div>
+        <div class="node-body">
+          <div class="node-label">Step 1 · Trigger</div>
+          <div class="node-title">Payment Success</div>
+          <div class="node-desc">User checkout completes. The payment service receives a confirmed transaction and needs to notify downstream services.</div>
+          <div class="tags">
+            <span class="tag">POST /payments</span>
+            <span class="tag">status: PAID</span>
+            <span class="tag">orderId: #8821</span>
+          </div>
+        </div>
+        <div class="status-dot" id="dot-payment"></div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"></div>
+      <span class="connector-label">BEGIN TRANSACTION</span>
+      <div class="connector-line"></div>
+      <div class="connector-arrow"></div>
+    </div>
+
+    <!-- 2. PostgreSQL -->
+    <div class="node n-postgres" id="node-postgres">
+      <div class="node-inner">
+        <div class="node-icon">🐘</div>
+        <div class="node-body">
+          <div class="node-label">Step 2 · Persistence</div>
+          <div class="node-title">PostgreSQL</div>
+          <div class="node-desc">Both the <code style="color:var(--blue);font-family:'JetBrains Mono',monospace;font-size:.75em">orders</code> table update <strong>and</strong> the outbox insert happen in a single atomic transaction — no dual-write problem.</div>
+          <div class="tags">
+            <span class="tag">orders table</span>
+            <span class="tag">ACID</span>
+            <span class="tag">atomic commit</span>
+          </div>
+        </div>
+        <div class="status-dot" id="dot-postgres"></div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"></div>
+      <span class="connector-label">INSERT INTO outbox</span>
+      <div class="connector-line"></div>
+      <div class="connector-arrow"></div>
+    </div>
+
+    <!-- 3. Outbox -->
+    <div class="node n-outbox" id="node-outbox">
+      <div class="node-inner">
+        <div class="node-icon">📬</div>
+        <div class="node-body">
+          <div class="node-label">Step 3 · Relay Buffer</div>
+          <div class="node-title">Outbox Table</div>
+          <div class="node-desc">A dedicated <code style="color:var(--purple);font-family:'JetBrains Mono',monospace;font-size:.75em">outbox</code> table holds unpublished events. A poller or CDC tool (Debezium) reads <code style="color:var(--purple);font-family:'JetBrains Mono',monospace;font-size:.75em">status = PENDING</code> rows.</div>
+          <div class="tags">
+            <span class="tag">status: PENDING</span>
+            <span class="tag">Debezium / Poller</span>
+            <span class="tag">idempotency_key</span>
+          </div>
+        </div>
+        <div class="status-dot" id="dot-outbox"></div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"></div>
+      <span class="connector-label">PUBLISH MESSAGE</span>
+      <div class="connector-line"></div>
+      <div class="connector-arrow"></div>
+    </div>
+
+    <!-- 4. RabbitMQ -->
+    <div class="node n-rabbit" id="node-rabbit">
+      <div class="node-inner">
+        <div class="node-icon">🐇</div>
+        <div class="node-body">
+          <div class="node-label">Step 4 · Broker</div>
+          <div class="node-title">RabbitMQ</div>
+          <div class="node-desc">The relay publishes to an exchange. A durable queue ensures messages survive broker restarts. Publisher confirms guarantee delivery.</div>
+          <div class="tags">
+            <span class="tag">exchange: payments</span>
+            <span class="tag">routing: order.paid</span>
+            <span class="tag">durable queue</span>
+          </div>
+        </div>
+        <div class="status-dot" id="dot-rabbit"></div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"></div>
+      <span class="connector-label">CONSUME &amp; ACK</span>
+      <div class="connector-line"></div>
+      <div class="connector-arrow"></div>
+    </div>
+
+    <!-- 5. Order Consumer -->
+    <div class="node n-consumer" id="node-consumer">
+      <div class="node-inner">
+        <div class="node-icon">⚙️</div>
+        <div class="node-body">
+          <div class="node-label">Step 5 · Handler</div>
+          <div class="node-title">Order Consumer</div>
+          <div class="node-desc">Consumes the <code style="color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:.75em">order.paid</code> event, triggers fulfilment, marks outbox row <code style="color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:.75em">PROCESSED</code>, and sends ACK.</div>
+          <div class="tags">
+            <span class="tag">manual ack</span>
+            <span class="tag">idempotent handler</span>
+            <span class="tag">status: PROCESSED</span>
+          </div>
+        </div>
+        <div class="status-dot" id="dot-consumer"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-primary" id="btn-simulate" onclick="runSimulation()">▶ Simulate Flow</button>
+    <button class="btn btn-secondary" onclick="resetSim()">↺ Reset</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="info-strip">
+    <div class="info-card">
+      <div class="val" id="stat-events" style="color:var(--green)">0</div>
+      <div class="lbl">Events Fired</div>
+    </div>
+    <div class="info-card">
+      <div class="val" id="stat-delivered" style="color:var(--teal)">0</div>
+      <div class="lbl">Delivered</div>
+    </div>
+    <div class="info-card">
+      <div class="val" id="stat-pending" style="color:var(--purple)">0</div>
+      <div class="lbl">In Outbox</div>
+    </div>
+    <div class="info-card">
+      <div class="val" id="stat-latency" style="color:var(--orange)">—</div>
+      <div class="lbl">Latency (ms)</div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log-section">
+    <h2>📋 Event Log</h2>
+    <div class="log-box" id="log-box"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const c = document.getElementById('stars');
+  const ctx = c.getContext('2d');
+  let stars = [];
+  function resize(){ c.width = innerWidth; c.height = innerHeight; }
+  function init(){
+    resize();
+    stars = Array.from({length:120},()=>({
+      x: Math.random()*c.width, y: Math.random()*c.height,
+      r: Math.random()*.9+.2, a: Math.random(), da: (Math.random()-.5)*.006
+    }));
+  }
+  function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    stars.forEach(s=>{
+      s.a = Math.max(.05, Math.min(1, s.a+s.da));
+      if(s.a<=.05||s.a>=1) s.da*=-1;
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(200,220,255,${s.a})`; ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  window.addEventListener('resize', init);
+  init(); draw();
+})();
+
+const STEPS = [
+  { id:'payment',  color:'green',  msg:'💳 Payment confirmed — orderId #8821, amount $129.00' },
+  { id:'postgres', color:'blue',   msg:'🐘 Transaction BEGIN — writing orders + outbox atomically' },
+  { id:'outbox',   color:'purple', msg:'📬 Outbox row inserted — status=PENDING, idempotency_key=uuid-1' },
+  { id:'rabbit',   color:'orange', msg:'🐇 Published to exchange "payments" → routing key "order.paid"' },
+  { id:'consumer', color:'teal',   msg:'⚙️  Order Consumer received event → fulfilment triggered → ACK sent' },
+];
+
+let running = false, simCount = 0, delivCount = 0;
+
+function logLine(time, msg, color=''){
+  const box = document.getElementById('log-box');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-time">[${time}]</span><span class="log-msg ${color}">${msg}</span>`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function now(){ return new Date().toLocaleTimeString('en-GB',{hour12:false}); }
+
+function highlightNode(id){
+  const node = document.getElementById(`node-${id}`);
+  node.style.transform = 'translateY(-5px) scale(1.015)';
+  setTimeout(()=>{ node.style.transform = ''; }, 700);
+}
+
+function setDot(id, on){
+  const dot = document.getElementById(`dot-${id}`);
+  dot.style.animation = on ? 'pulse-dot 1s ease-in-out infinite' : 'none';
+  dot.style.opacity   = on ? '1' : '.3';
+}
+
+function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+async function runSimulation(){
+  if(running) return;
+  running = true;
+  const btn = document.getElementById('btn-simulate');
+  btn.disabled = true; btn.textContent = '⏳ Running…';
+
+  const startMs = Date.now();
+  simCount++;
+  document.getElementById('stat-events').textContent  = simCount;
+  document.getElementById('stat-pending').textContent = simCount - delivCount;
+  logLine(now(), `── Simulation #${simCount} started ──`);
+
+  for(let i=0;i<STEPS.length;i++){
+    const s = STEPS[i];
+    setDot(s.id, true);
+    highlightNode(s.id);
+    logLine(now(), s.msg, s.color);
+    if(s.id==='outbox') document.getElementById('stat-pending').textContent = simCount - delivCount;
+    await delay(i===0 ? 400 : 950);
+    setDot(s.id, false);
+  }
+
+  delivCount++;
+  const latency = Date.now() - startMs;
+  document.getElementById('stat-delivered').textContent = delivCount;
+  document.getElementById('stat-pending').textContent   = simCount - delivCount;
+  document.getElementById('stat-latency').textContent   = latency;
+  logLine(now(), '✅ Flow complete — outbox row marked PROCESSED', 'teal');
+  logLine(now(), `── End of Simulation #${simCount} (${latency}ms) ──`);
+
+  btn.disabled = false; btn.textContent = '▶ Simulate Flow';
+  running = false;
+}
+
+function resetSim(){
+  simCount=0; delivCount=0;
+  ['payment','postgres','outbox','rabbit','consumer'].forEach(id=>setDot(id,false));
+  ['stat-events','stat-delivered','stat-pending'].forEach(id=>document.getElementById(id).textContent='0');
+  document.getElementById('stat-latency').textContent = '—';
+  document.getElementById('log-box').innerHTML = '';
+}
+</script>
+</body>
+</html>

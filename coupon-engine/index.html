@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coupon Engine — FURNISTORM</title>
+  <meta name="description" content="Interactive coupon validation engine: enter a promo code to see real-time validation, discount calculation, and final price." />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:     #060810;
+      --s1:     #0b0f1e;
+      --card:   #0f1626;
+      --card2:  #131d30;
+      --border: rgba(255,255,255,.07);
+      --text:   #f0f4ff;
+      --muted:  #64748b;
+      --green:  #22c55e;
+      --red:    #ef4444;
+      --amber:  #f59e0b;
+      --purple: #a78bfa;
+      --cyan:   #06b6d4;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 50% 40% at 10% 10%, rgba(34,197,94,.06) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 50% at 90% 90%, rgba(99,102,241,.07) 0%, transparent 60%);
+    }
+
+    /* ── canvas stars ───────────────── */
+    #stars-c { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .5; }
+
+    /* ── app ────────────────────────── */
+    .app { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; display: flex; flex-direction: column; gap: 2rem; }
+
+    /* ── header ─────────────────────── */
+    header { text-align: center; }
+    .chip {
+      display: inline-flex; align-items: center; gap: .45rem;
+      font-size: .65rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+      padding: .28rem .9rem; border-radius: 999px;
+      background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.25); color: #4ade80;
+      margin-bottom: 1rem;
+    }
+    .chip::before { content:''; width: 5px; height: 5px; border-radius: 50%; background: #4ade80; animation: blink 1.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.1} }
+    header h1 {
+      font-size: clamp(1.9rem, 3.8vw, 3rem); font-weight: 900; line-height: 1.1; margin-bottom: .7rem;
+      background: linear-gradient(140deg, #f0f4ff 0%, #4ade80 45%, #06b6d4 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    header p { color: var(--muted); font-size: .88rem; max-width: 420px; margin: 0 auto; line-height: 1.75; }
+
+    /* ── main grid ──────────────────── */
+    .main { display: grid; grid-template-columns: 1fr 420px; gap: 1.5rem; align-items: start; }
+
+    /* ── left column ────────────────── */
+    .left-col { display: flex; flex-direction: column; gap: 1.4rem; }
+
+    /* ── pipeline steps ─────────────── */
+    .pipeline-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 1.5rem;
+    }
+    .pc-title { font-size: .65rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin-bottom: 1.3rem; }
+
+    .pipe-steps { display: flex; align-items: center; gap: 0; }
+    .pipe-step {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: .55rem;
+      position: relative;
+    }
+    .pipe-step:not(:last-child)::after {
+      content: '';
+      position: absolute; right: 0; top: 22px;
+      width: 100%; height: 2px;
+      background: var(--border);
+      z-index: 0;
+      transition: background .5s;
+    }
+    .pipe-step.done::after    { background: linear-gradient(90deg, var(--step-color), var(--border)); }
+
+    .step-node {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--card2);
+      display: grid; place-items: center;
+      font-size: 1.1rem;
+      position: relative; z-index: 1;
+      transition: border-color .4s, box-shadow .4s, background .4s;
+    }
+    .pipe-step.active .step-node {
+      border-color: var(--step-color);
+      background: color-mix(in srgb, var(--step-color) 15%, transparent);
+      box-shadow: 0 0 0 6px color-mix(in srgb, var(--step-color) 12%, transparent),
+                  0 0 20px color-mix(in srgb, var(--step-color) 25%, transparent);
+      animation: node-pulse 1.8s ease-in-out infinite;
+    }
+    .pipe-step.done .step-node {
+      border-color: var(--step-color);
+      background: color-mix(in srgb, var(--step-color) 12%, transparent);
+    }
+    .pipe-step.error .step-node {
+      border-color: var(--red);
+      background: rgba(239,68,68,.12);
+      box-shadow: 0 0 0 6px rgba(239,68,68,.1);
+    }
+    @keyframes node-pulse {
+      0%,100% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--step-color) 15%,transparent), 0 0 16px color-mix(in srgb, var(--step-color) 20%,transparent); }
+      50%     { box-shadow: 0 0 0 10px color-mix(in srgb, var(--step-color) 5%,transparent),  0 0 32px color-mix(in srgb, var(--step-color) 30%,transparent); }
+    }
+    .step-label { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); text-align: center; transition: color .4s; }
+    .pipe-step.active .step-label, .pipe-step.done .step-label { color: var(--step-color); }
+    .pipe-step.error  .step-label { color: var(--red); }
+
+    .step-status { font-size: .62rem; color: var(--muted); min-height: 16px; text-align: center; transition: all .3s; }
+    .pipe-step.done  .step-status { color: var(--step-color); }
+    .pipe-step.error .step-status { color: var(--red); }
+
+    /* ── coupon input ───────────────── */
+    .coupon-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 1.5rem;
+    }
+    .coupon-row { display: flex; gap: .75rem; align-items: stretch; }
+    .coupon-input-wrap { flex: 1; position: relative; }
+    .coupon-input {
+      width: 100%; padding: .85rem 3rem .85rem 1.1rem;
+      background: var(--card2); border: 1.5px solid var(--border);
+      border-radius: 13px; color: var(--text);
+      font-family: 'JetBrains Mono', monospace; font-size: .95rem; font-weight: 600;
+      letter-spacing: .1em; text-transform: uppercase;
+      outline: none; transition: border-color .3s, box-shadow .3s;
+    }
+    .coupon-input:focus { border-color: rgba(34,197,94,.5); box-shadow: 0 0 0 3px rgba(34,197,94,.1); }
+    .coupon-input.valid   { border-color: var(--green); box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+    .coupon-input.invalid { border-color: var(--red);   box-shadow: 0 0 0 3px rgba(239,68,68,.12); }
+
+    .input-icon {
+      position: absolute; right: .9rem; top: 50%; transform: translateY(-50%);
+      font-size: 1rem; transition: opacity .3s;
+    }
+
+    .btn-apply {
+      padding: 0 1.5rem; border-radius: 13px; border: none;
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      color: #fff; font-family: 'Inter', sans-serif;
+      font-size: .82rem; font-weight: 800; cursor: pointer;
+      box-shadow: 0 4px 20px rgba(34,197,94,.25);
+      transition: all .2s; white-space: nowrap;
+      min-width: 100px;
+    }
+    .btn-apply:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(34,197,94,.4); }
+    .btn-apply:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* hint codes */
+    .hint-codes { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; }
+    .hint { font-family: 'JetBrains Mono', monospace; font-size: .65rem; font-weight: 600;
+      padding: .22rem .6rem; border-radius: 6px; cursor: pointer;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); color: var(--muted);
+      transition: all .2s; letter-spacing: .06em; }
+    .hint:hover { background: rgba(255,255,255,.08); color: var(--text); border-color: rgba(255,255,255,.15); }
+
+    /* validation message */
+    .val-msg { margin-top: .8rem; font-size: .78rem; line-height: 1.55; border-radius: 10px; padding: .65rem .9rem; transition: all .3s; display: none; }
+    .val-msg.show { display: block; }
+    .val-msg.ok  { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2); color: #4ade80; }
+    .val-msg.err { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); color: #f87171; }
+    .val-msg.warn{ background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.2); color: #fbbf24; }
+
+    /* ── right column: order + price ── */
+    .right-col { display: flex; flex-direction: column; gap: 1.4rem; position: sticky; top: 1.5rem; }
+
+    /* order items */
+    .order-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 1.4rem;
+    }
+    .oc-title { font-size: .65rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+    .order-item { display: flex; align-items: center; gap: .9rem; padding: .65rem 0; border-bottom: 1px solid var(--border); }
+    .order-item:last-child { border-bottom: none; }
+    .item-icon { font-size: 1.4rem; width: 40px; height: 40px; display: grid; place-items: center; background: var(--card2); border-radius: 10px; flex-shrink: 0; }
+    .item-info { flex: 1; }
+    .item-name  { font-size: .8rem; font-weight: 600; }
+    .item-sub   { font-size: .68rem; color: var(--muted); margin-top: .1rem; }
+    .item-price { font-family: 'JetBrains Mono', monospace; font-size: .82rem; font-weight: 700; color: var(--text); }
+
+    /* price breakdown */
+    .price-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 1.4rem;
+    }
+    .price-row { display: flex; justify-content: space-between; align-items: center; padding: .5rem 0; }
+    .price-row .pk { font-size: .78rem; color: var(--muted); }
+    .price-row .pv { font-family: 'JetBrains Mono', monospace; font-size: .82rem; font-weight: 600; color: var(--text); }
+    .price-row.discount .pk { color: var(--green); }
+    .price-row.discount .pv { color: var(--green); }
+    .price-row.shipping .pk { color: var(--cyan); }
+    .price-row.shipping .pv { color: var(--cyan); }
+    .price-divider { border: none; border-top: 1px solid var(--border); margin: .4rem 0; }
+    .price-total { display: flex; justify-content: space-between; align-items: center; padding: .75rem 0 .2rem; }
+    .price-total .tk { font-size: .85rem; font-weight: 700; color: var(--text); }
+    .price-total .tv { font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 900; transition: color .4s; }
+
+    /* savings badge */
+    .savings-badge {
+      display: flex; align-items: center; justify-content: center; gap: .5rem;
+      background: rgba(34,197,94,.07); border: 1px solid rgba(34,197,94,.18);
+      border-radius: 10px; padding: .6rem .9rem; margin-top: .9rem;
+      transition: all .4s; opacity: 0;
+    }
+    .savings-badge.show { opacity: 1; }
+    .savings-badge .sb-icon { font-size: 1.1rem; }
+    .savings-badge .sb-text { font-size: .78rem; color: var(--green); font-weight: 600; }
+    .savings-badge .sb-amt { font-family: 'JetBrains Mono', monospace; font-size: .82rem; font-weight: 800; color: #4ade80; }
+
+    /* confetti burst */
+    .confetti-wrap { position: fixed; inset: 0; pointer-events: none; z-index: 999; overflow: hidden; }
+    .confetti-piece {
+      position: absolute; width: 8px; height: 8px; border-radius: 2px;
+      animation: confetti-fall linear forwards;
+    }
+    @keyframes confetti-fall {
+      0%   { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+
+    /* responsive */
+    @media (max-width: 860px) { .main { grid-template-columns: 1fr; } .right-col { position: static; } }
+  </style>
+</head>
+<body>
+
+<canvas id="stars-c"></canvas>
+<div class="confetti-wrap" id="confetti-wrap"></div>
+
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="chip">🏷️ Promo Engine</div>
+    <h1>Coupon Validator</h1>
+    <p>Enter a promo code to run it through the validation pipeline and see your discount applied in real time.</p>
+  </header>
+
+  <div class="main">
+
+    <!-- ── LEFT ──────────────────────────────── -->
+    <div class="left-col">
+
+      <!-- Pipeline Steps -->
+      <div class="pipeline-card">
+        <div class="pc-title">⚙️ Validation Pipeline</div>
+        <div class="pipe-steps" id="pipe-steps">
+
+          <div class="pipe-step" id="step-0" style="--step-color:#a78bfa">
+            <div class="step-node">🏷️</div>
+            <div class="step-label">Coupon</div>
+            <div class="step-status" id="ss-0">Waiting…</div>
+          </div>
+
+          <div class="pipe-step" id="step-1" style="--step-color:#06b6d4">
+            <div class="step-node">🔍</div>
+            <div class="step-label">Validate</div>
+            <div class="step-status" id="ss-1">Idle</div>
+          </div>
+
+          <div class="pipe-step" id="step-2" style="--step-color:#f59e0b">
+            <div class="step-node">🎯</div>
+            <div class="step-label">Discount</div>
+            <div class="step-status" id="ss-2">Idle</div>
+          </div>
+
+          <div class="pipe-step" id="step-3" style="--step-color:#22c55e">
+            <div class="step-node">💰</div>
+            <div class="step-label">Final Price</div>
+            <div class="step-status" id="ss-3">Idle</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Coupon Input -->
+      <div class="coupon-card">
+        <div class="pc-title">🎟️ Enter Promo Code</div>
+        <div class="coupon-row">
+          <div class="coupon-input-wrap">
+            <input type="text" class="coupon-input" id="coupon-input" placeholder="e.g. SAVE20" maxlength="18" oninput="onType()" onkeydown="onKey(event)" />
+            <div class="input-icon" id="input-icon">✏️</div>
+          </div>
+          <button class="btn-apply" id="btn-apply" onclick="applyCoupon()">Apply →</button>
+        </div>
+        <div class="val-msg" id="val-msg"></div>
+
+        <div style="margin-top:1rem">
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:.5rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase">Try these codes</div>
+          <div class="hint-codes" id="hints"></div>
+        </div>
+      </div>
+
+      <!-- Coupon Catalogue -->
+      <div class="pipeline-card">
+        <div class="pc-title">📋 Available Coupons</div>
+        <div id="coupon-list" style="display:flex;flex-direction:column;gap:.6rem;"></div>
+      </div>
+
+    </div>
+
+    <!-- ── RIGHT ─────────────────────────────── -->
+    <div class="right-col">
+
+      <!-- Order items -->
+      <div class="order-card">
+        <div class="oc-title">🛒 Your Cart</div>
+        <div class="order-item">
+          <div class="item-icon">🛋️</div>
+          <div class="item-info"><div class="item-name">Bjorn Oak Sofa</div><div class="item-sub">Scandinavian · Fabric · Beige</div></div>
+          <div class="item-price">₹38,500</div>
+        </div>
+        <div class="order-item">
+          <div class="item-icon">☕</div>
+          <div class="item-info"><div class="item-name">Glass Coffee Table</div><div class="item-sub">Modern · Glass · Black</div></div>
+          <div class="item-price">₹14,800</div>
+        </div>
+        <div class="order-item">
+          <div class="item-icon">💡</div>
+          <div class="item-info"><div class="item-name">Luna Arc Floor Lamp</div><div class="item-sub">Minimalist · Metal · White</div></div>
+          <div class="item-price">₹5,200</div>
+        </div>
+      </div>
+
+      <!-- Price breakdown -->
+      <div class="price-card">
+        <div class="pc-title">🧾 Price Breakdown</div>
+
+        <div class="price-row">
+          <span class="pk">Subtotal (3 items)</span>
+          <span class="pv">₹58,500</span>
+        </div>
+        <div class="price-row shipping" id="row-shipping">
+          <span class="pk">🚚 Shipping</span>
+          <span class="pv" id="pv-shipping">₹499</span>
+        </div>
+        <div class="price-row discount" id="row-discount" style="display:none">
+          <span class="pk" id="pk-discount">🏷️ Discount</span>
+          <span class="pv" id="pv-discount">— ₹0</span>
+        </div>
+        <div class="price-row" id="row-extra" style="display:none">
+          <span class="pk" id="pk-extra"></span>
+          <span class="pv" id="pv-extra"></span>
+        </div>
+
+        <hr class="price-divider" />
+
+        <div class="price-total">
+          <span class="tk">Total</span>
+          <span class="tv" id="tv-total" style="color:var(--text)">₹58,999</span>
+        </div>
+
+        <div class="savings-badge" id="savings-badge">
+          <span class="sb-icon">🎉</span>
+          <span class="sb-text">You're saving</span>
+          <span class="sb-amt" id="savings-amt"></span>
+          <span class="sb-text">on this order!</span>
+        </div>
+
+        <button class="btn-apply" style="width:100%;margin-top:1.1rem;background:linear-gradient(135deg,#4f46e5,#7c3aed)" onclick="alert('Proceeding to payment…')">
+          Proceed to Payment →
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══ COUPON DATABASE ════════════════════════════════════════ */
+const SUBTOTAL = 58500;
+const SHIP_DEFAULT = 499;
+
+const COUPONS = {
+  'SAVE20': {
+    label: '20% Off',
+    type: 'percent',
+    value: 20,
+    desc: '20% off on entire order',
+    icon: '🎉',
+    minOrder: 10000,
+    color: '#a78bfa',
+    expires: '2027-01-01',
+    freeShip: false,
+  },
+  'FLAT5K': {
+    label: '₹5,000 Off',
+    type: 'flat',
+    value: 5000,
+    desc: 'Flat ₹5,000 off on orders above ₹40,000',
+    icon: '💸',
+    minOrder: 40000,
+    color: '#22c55e',
+    expires: '2027-03-31',
+    freeShip: false,
+  },
+  'FREESHIP': {
+    label: 'Free Shipping',
+    type: 'freeship',
+    value: SHIP_DEFAULT,
+    desc: 'Free shipping on any order',
+    icon: '🚚',
+    minOrder: 0,
+    color: '#06b6d4',
+    expires: '2027-06-30',
+    freeShip: true,
+  },
+  'WELCOME10': {
+    label: '10% Off',
+    type: 'percent',
+    value: 10,
+    desc: '10% off — new customer welcome offer',
+    icon: '👋',
+    minOrder: 5000,
+    color: '#f59e0b',
+    expires: '2026-12-31',
+    freeShip: false,
+  },
+  'MEGA30': {
+    label: '30% Off',
+    type: 'percent',
+    value: 30,
+    desc: '30% off on orders above ₹75,000',
+    icon: '🔥',
+    minOrder: 75000,
+    color: '#fb7185',
+    expires: '2027-01-15',
+    freeShip: false,
+  },
+  'COMBO': {
+    label: '15% + Free Ship',
+    type: 'combo',
+    value: 15,
+    desc: '15% off + free shipping combo deal',
+    icon: '🎁',
+    minOrder: 30000,
+    color: '#34d399',
+    expires: '2027-02-28',
+    freeShip: true,
+  },
+};
+
+/* ═══ BUILD HINT CHIPS ═══════════════════════════════════════ */
+const hintsEl = document.getElementById('hints');
+Object.keys(COUPONS).forEach(code => {
+  const c = COUPONS[code];
+  const el = document.createElement('div');
+  el.className = 'hint';
+  el.textContent = code;
+  el.onclick = () => {
+    document.getElementById('coupon-input').value = code;
+    applyCoupon();
+  };
+  hintsEl.appendChild(el);
+});
+
+/* ═══ BUILD COUPON LIST ══════════════════════════════════════ */
+const listEl = document.getElementById('coupon-list');
+Object.entries(COUPONS).forEach(([code, c]) => {
+  const exp = new Date(c.expires);
+  const isExp = exp < new Date();
+  listEl.innerHTML += `
+    <div style="display:flex;align-items:center;gap:.9rem;padding:.7rem .9rem;background:var(--card2);border:1px solid ${isExp?'var(--border)':'color-mix(in srgb,'+c.color+' 20%,transparent)'};border-radius:13px;cursor:pointer;transition:all .2s" onclick="useCode('${code}')">
+      <div style="font-size:1.2rem;width:36px;height:36px;background:color-mix(in srgb,${c.color} 12%,transparent);border-radius:9px;display:grid;place-items:center;flex-shrink:0">${c.icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:700;color:${c.color};letter-spacing:.08em">${code}</div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:.1rem">${c.desc}</div>
+        ${c.minOrder > 0 ? `<div style="font-size:.62rem;color:#374151;margin-top:.1rem">Min. order ₹${c.minOrder.toLocaleString('en-IN')}</div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:.68rem;font-weight:700;color:${isExp?'var(--red)':c.color};background:color-mix(in srgb,${isExp?'#ef4444':c.color} 10%,transparent);padding:.15rem .45rem;border-radius:5px">${c.label}</div>
+        <div style="font-size:.58rem;color:var(--muted);margin-top:.25rem">exp ${exp.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'})}</div>
+      </div>
+    </div>`;
+});
+
+function useCode(code) {
+  document.getElementById('coupon-input').value = code;
+  applyCoupon();
+}
+
+/* ═══ PIPELINE CONTROL ═══════════════════════════════════════ */
+function setStep(idx, state, statusText) {
+  const el = document.getElementById(`step-${idx}`);
+  const ss = document.getElementById(`ss-${idx}`);
+  el.classList.remove('active', 'done', 'error');
+  if (state) el.classList.add(state);
+  ss.textContent = statusText;
+}
+function resetPipe() {
+  for (let i = 0; i < 4; i++) setStep(i, '', i === 0 ? 'Waiting…' : 'Idle');
+}
+
+/* ═══ INPUT EVENTS ═══════════════════════════════════════════ */
+function onType() {
+  const inp = document.getElementById('coupon-input');
+  inp.value = inp.value.toUpperCase();
+  inp.className = 'coupon-input';
+  document.getElementById('input-icon').textContent = '✏️';
+  hideMsg();
+  resetPipe();
+  resetPrice();
+}
+function onKey(e) { if (e.key === 'Enter') applyCoupon(); }
+
+/* ═══ MAIN APPLY ═════════════════════════════════════════════ */
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function applyCoupon() {
+  const inp = document.getElementById('coupon-input');
+  const code = inp.value.trim().toUpperCase();
+  if (!code) return;
+
+  resetPipe();
+  resetPrice();
+  hideMsg();
+  document.getElementById('btn-apply').disabled = true;
+
+  /* ── Step 0: Coupon received ── */
+  setStep(0, 'active', code);
+  await delay(450);
+  setStep(0, 'done', code);
+
+  /* ── Step 1: Validate ── */
+  setStep(1, 'active', 'Checking…');
+  await delay(700);
+
+  const coupon = COUPONS[code];
+  if (!coupon) {
+    setStep(1, 'error', 'Not found');
+    inp.className = 'coupon-input invalid';
+    document.getElementById('input-icon').textContent = '❌';
+    showMsg('err', `❌ Coupon code <strong>"${code}"</strong> doesn't exist. Try one of the suggested codes below.`);
+    document.getElementById('btn-apply').disabled = false;
+    return;
+  }
+
+  const expired = new Date(coupon.expires) < new Date();
+  if (expired) {
+    setStep(1, 'error', 'Expired');
+    inp.className = 'coupon-input invalid';
+    document.getElementById('input-icon').textContent = '⏰';
+    showMsg('err', `⏰ Coupon <strong>${code}</strong> expired on ${new Date(coupon.expires).toLocaleDateString('en-IN')}.`);
+    document.getElementById('btn-apply').disabled = false;
+    return;
+  }
+
+  if (SUBTOTAL < coupon.minOrder) {
+    setStep(1, 'error', 'Min order not met');
+    inp.className = 'coupon-input invalid';
+    document.getElementById('input-icon').textContent = '⚠️';
+    showMsg('warn', `⚠️ <strong>${code}</strong> requires a minimum order of ₹${coupon.minOrder.toLocaleString('en-IN')}. Your subtotal is ₹${SUBTOTAL.toLocaleString('en-IN')}.`);
+    document.getElementById('btn-apply').disabled = false;
+    return;
+  }
+
+  setStep(1, 'done', '✓ Valid');
+  inp.className = 'coupon-input valid';
+  document.getElementById('input-icon').textContent = '✅';
+
+  /* ── Step 2: Discount ── */
+  setStep(2, 'active', 'Calculating…');
+  await delay(600);
+
+  let discountAmt = 0;
+  let discountLabel = '';
+  let extraLabel = '', extraVal = '';
+  let shipAmt = SHIP_DEFAULT;
+
+  if (coupon.type === 'percent') {
+    discountAmt = Math.round(SUBTOTAL * coupon.value / 100);
+    discountLabel = `${coupon.icon} ${code} (${coupon.value}% off)`;
+  } else if (coupon.type === 'flat') {
+    discountAmt = coupon.value;
+    discountLabel = `${coupon.icon} ${code} (Flat off)`;
+  } else if (coupon.type === 'freeship') {
+    discountAmt = 0;
+    shipAmt = 0;
+    discountLabel = `${coupon.icon} ${code}`;
+    extraLabel = ''; // handled via shipping row
+  } else if (coupon.type === 'combo') {
+    discountAmt = Math.round(SUBTOTAL * coupon.value / 100);
+    shipAmt = 0;
+    discountLabel = `${coupon.icon} ${code} (${coupon.value}% off)`;
+    extraLabel = '🎁 Free Shipping bonus';
+    extraVal = '− ₹' + SHIP_DEFAULT.toLocaleString('en-IN');
+  }
+
+  setStep(2, 'done', coupon.label);
+
+  /* ── Step 3: Final Price ── */
+  setStep(3, 'active', 'Computing…');
+  await delay(500);
+
+  const final = SUBTOTAL + shipAmt - discountAmt;
+  const totalSaved = (SHIP_DEFAULT - shipAmt) + discountAmt;
+
+  setStep(3, 'done', '₹' + final.toLocaleString('en-IN'));
+
+  /* ── Update price panel ── */
+  applyPrice({ discountAmt, discountLabel, shipAmt, extraLabel, extraVal, final, totalSaved, coupon });
+
+  showMsg('ok', `✅ <strong>${code}</strong> applied! ${coupon.desc}.`);
+  if (totalSaved > 0) burst();
+
+  document.getElementById('btn-apply').disabled = false;
+}
+
+/* ═══ PRICE PANEL ═══════════════════════════════════════════ */
+function applyPrice({ discountAmt, discountLabel, shipAmt, extraLabel, extraVal, final, totalSaved }) {
+  // shipping row
+  const pvShip = document.getElementById('pv-shipping');
+  if (shipAmt === 0) {
+    pvShip.textContent = 'FREE';
+    pvShip.style.color = '#22c55e';
+  } else {
+    pvShip.textContent = '₹' + shipAmt.toLocaleString('en-IN');
+    pvShip.style.color = '';
+  }
+
+  // discount row
+  const rowDisc = document.getElementById('row-discount');
+  if (discountAmt > 0) {
+    rowDisc.style.display = 'flex';
+    document.getElementById('pk-discount').textContent = discountLabel;
+    document.getElementById('pv-discount').textContent = '− ₹' + discountAmt.toLocaleString('en-IN');
+  }
+
+  // extra row (combo free ship)
+  const rowExtra = document.getElementById('row-extra');
+  if (extraLabel) {
+    rowExtra.style.display = 'flex';
+    document.getElementById('pk-extra').textContent = extraLabel;
+    document.getElementById('pk-extra').style.color = '#06b6d4';
+    document.getElementById('pv-extra').textContent = extraVal;
+    document.getElementById('pv-extra').style.color = '#06b6d4';
+  }
+
+  // total
+  const tvTotal = document.getElementById('tv-total');
+  tvTotal.textContent = '₹' + final.toLocaleString('en-IN');
+  tvTotal.style.color = '#22c55e';
+
+  // savings badge
+  if (totalSaved > 0) {
+    const badge = document.getElementById('savings-badge');
+    badge.classList.add('show');
+    document.getElementById('savings-amt').textContent = '₹' + totalSaved.toLocaleString('en-IN');
+  }
+}
+
+function resetPrice() {
+  document.getElementById('pv-shipping').textContent = '₹499';
+  document.getElementById('pv-shipping').style.color = '';
+  document.getElementById('row-discount').style.display = 'none';
+  document.getElementById('row-extra').style.display = 'none';
+  document.getElementById('tv-total').textContent = '₹58,999';
+  document.getElementById('tv-total').style.color = 'var(--text)';
+  document.getElementById('savings-badge').classList.remove('show');
+}
+
+/* ═══ MESSAGES ═══════════════════════════════════════════════ */
+function showMsg(type, html) {
+  const el = document.getElementById('val-msg');
+  el.className = `val-msg show ${type}`;
+  el.innerHTML = html;
+}
+function hideMsg() {
+  const el = document.getElementById('val-msg');
+  el.className = 'val-msg';
+}
+
+/* ═══ CONFETTI ════════════════════════════════════════════════ */
+function burst() {
+  const wrap = document.getElementById('confetti-wrap');
+  wrap.innerHTML = '';
+  const colors = ['#22c55e','#a78bfa','#f59e0b','#06b6d4','#fb7185','#34d399','#fbbf24'];
+  for (let i = 0; i < 60; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    p.style.cssText = `
+      left: ${Math.random() * 100}%;
+      top: ${-10 - Math.random() * 20}px;
+      background: ${colors[Math.floor(Math.random() * colors.length)]};
+      width: ${4 + Math.random() * 7}px;
+      height: ${4 + Math.random() * 7}px;
+      border-radius: ${Math.random() > .5 ? '50%' : '2px'};
+      animation-duration: ${1.5 + Math.random() * 2}s;
+      animation-delay: ${Math.random() * .4}s;
+    `;
+    wrap.appendChild(p);
+  }
+  setTimeout(() => wrap.innerHTML = '', 3000);
+}
+
+/* ═══ STARS BG ═══════════════════════════════════════════════ */
+(function () {
+  const c = document.getElementById('stars-c');
+  const ctx = c.getContext('2d');
+  let s = [];
+  function init() {
+    c.width = innerWidth; c.height = innerHeight;
+    s = Array.from({ length: 100 }, () => ({ x: Math.random() * c.width, y: Math.random() * c.height, r: Math.random() * .9 + .2, a: Math.random(), da: (Math.random() - .5) * .005 }));
+  }
+  function draw() {
+    ctx.clearRect(0, 0, c.width, c.height);
+    s.forEach(p => {
+      p.a = Math.max(.05, Math.min(1, p.a + p.da));
+      if (p.a <= .05 || p.a >= 1) p.da *= -1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200,220,255,${p.a})`; ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  window.addEventListener('resize', init);
+  init(); draw();
+})();
+</script>
+</body>
+</html>

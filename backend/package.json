@@ -1,0 +1,39 @@
+{
+  "name": "furnistorm-backend",
+  "version": "1.0.0",
+  "description": "FURNISTORM backend API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest --runInBand --forceExit",
+    "migrate:up": "node-pg-migrate up --migrations-dir database/migrations --database-url-var DATABASE_URL",
+    "migrate:down": "node-pg-migrate down --migrations-dir database/migrations --database-url-var DATABASE_URL",
+    "migrate:redo": "npm run migrate:down && npm run migrate:up",
+    "seed": "node database/seed/seed.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"]
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.4.1",
+    "joi": "^17.13.1",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "node-pg-migrate": "^9.0.0",
+    "nodemon": "^3.1.4",
+    "supertest": "^7.0.0"
+  }
+}

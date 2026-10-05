@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventory Concurrency — FURNISTORM</title>
+  <meta name="description" content="Visual simulation of 10,000 concurrent reservations against 100 inventory items, showing race conditions vs atomic locking." />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:    #040609;
+      --s1:    #07090f;
+      --card:  #0b1018;
+      --card2: #0f1522;
+      --bdr:   rgba(255,255,255,.07);
+      --text:  #eef2ff;
+      --muted: #64748b;
+      --green: #22c55e;
+      --red:   #ef4444;
+      --amber: #f59e0b;
+      --blue:  #3b82f6;
+      --purple:#8b5cf6;
+      --cyan:  #06b6d4;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 50% 40% at 0% 0%,  rgba(239,68,68,.08)  0%, transparent 55%),
+        radial-gradient(ellipse 50% 50% at 100% 100%, rgba(34,197,94,.07) 0%, transparent 55%),
+        radial-gradient(ellipse 40% 40% at 50% 50%, rgba(59,130,246,.04)  0%, transparent 65%);
+    }
+
+    /* ── canvas bg ─────────────────── */
+    #particle-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+    /* ── app ───────────────────────── */
+    .app { position: relative; z-index: 1; max-width: 1300px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; display: flex; flex-direction: column; gap: 2rem; }
+
+    /* ── header ───────────────────── */
+    header { text-align: center; }
+    .chip {
+      display: inline-flex; align-items: center; gap: .45rem;
+      font-size: .65rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+      padding: .28rem .9rem; border-radius: 999px;
+      background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25); color: #fca5a5;
+      margin-bottom: 1rem;
+    }
+    .chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #fca5a5; animation: blink 1.2s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.1} }
+    header h1 {
+      font-size: clamp(1.9rem, 4vw, 3rem); font-weight: 900; line-height: 1.1; margin-bottom: .7rem;
+      background: linear-gradient(140deg, #eef2ff 0%, #fca5a5 35%, #4ade80 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    header p { color: var(--muted); font-size: .88rem; max-width: 500px; margin: 0 auto; line-height: 1.75; }
+
+    /* ── mode toggle ──────────────── */
+    .mode-bar { display: flex; justify-content: center; gap: .8rem; flex-wrap: wrap; }
+    .mode-btn {
+      padding: .65rem 1.5rem; border-radius: 12px; border: 1.5px solid var(--bdr);
+      font-family: 'Inter', sans-serif; font-size: .82rem; font-weight: 700;
+      cursor: pointer; transition: all .22s; background: var(--card); color: var(--muted);
+    }
+    .mode-btn.active.danger { border-color: rgba(239,68,68,.5); color: #fca5a5; background: rgba(239,68,68,.08); box-shadow: 0 4px 20px rgba(239,68,68,.15); }
+    .mode-btn.active.safe   { border-color: rgba(34,197,94,.5);  color: #86efac; background: rgba(34,197,94,.08);  box-shadow: 0 4px 20px rgba(34,197,94,.15); }
+    .mode-btn:hover:not(.active) { color: var(--text); border-color: rgba(255,255,255,.15); }
+
+    /* ── main grid ─────────────────── */
+    .main { display: grid; grid-template-columns: 1fr 340px; gap: 1.5rem; }
+
+    /* ── left col ─────────────────── */
+    .left { display: flex; flex-direction: column; gap: 1.4rem; }
+
+    /* ── hero numbers row ─────────── */
+    .hero-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+    .hero-card {
+      background: var(--card); border: 1px solid var(--bdr); border-radius: 20px;
+      padding: 1.2rem 1rem; text-align: center; position: relative; overflow: hidden;
+      transition: border-color .4s;
+    }
+    .hero-card .hv {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 900; line-height: 1;
+      transition: color .3s;
+    }
+    .hero-card .hk { font-size: .65rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: .4rem; font-weight: 600; }
+    .hero-card .hbar { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; transition: background .4s, width .4s; }
+
+    /* ── arena ────────────────────── */
+    .arena-card {
+      background: var(--card); border: 1px solid var(--bdr); border-radius: 20px;
+      padding: 1.3rem; position: relative; overflow: hidden;
+    }
+    .arena-title { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; }
+    .arena-title span { font-size: .85rem; }
+
+    #arena { width: 100%; height: 320px; position: relative; background: #040609; border-radius: 12px; border: 1px solid rgba(255,255,255,.04); overflow: hidden; }
+
+    /* stock vault in center */
+    .vault {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 110px; height: 110px; border-radius: 50%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border: 3px solid #22c55e; background: rgba(34,197,94,.06);
+      box-shadow: 0 0 0 12px rgba(34,197,94,.05), 0 0 40px rgba(34,197,94,.15);
+      z-index: 10; transition: border-color .4s, box-shadow .4s;
+    }
+    .vault.danger { border-color: #ef4444; background: rgba(239,68,68,.08); box-shadow: 0 0 0 12px rgba(239,68,68,.05), 0 0 40px rgba(239,68,68,.2); }
+    .vault .v-num { font-family: 'JetBrains Mono', monospace; font-size: 1.9rem; font-weight: 900; line-height: 1; transition: color .3s; color: #22c55e; }
+    .vault.danger .v-num { color: #ef4444; }
+    .vault .v-lbl { font-size: .58rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: .1rem; }
+
+    /* customer dots */
+    .dot {
+      position: absolute; width: 8px; height: 8px; border-radius: 50%;
+      pointer-events: none; z-index: 5;
+    }
+
+    /* ── mechanism card ───────────── */
+    .mech-card {
+      background: var(--card); border: 1px solid var(--bdr); border-radius: 20px; padding: 1.3rem;
+    }
+    .mech-title { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+
+    /* comparison table */
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }
+    .comp-col { border-radius: 14px; padding: 1rem; border: 1px solid var(--bdr); }
+    .comp-col.bad  { background: rgba(239,68,68,.04); border-color: rgba(239,68,68,.15); }
+    .comp-col.good { background: rgba(34,197,94,.04); border-color: rgba(34,197,94,.15); }
+    .comp-head { font-size: .72rem; font-weight: 800; margin-bottom: .65rem; display: flex; align-items: center; gap: .4rem; }
+    .comp-col.bad  .comp-head { color: #fca5a5; }
+    .comp-col.good .comp-head { color: #86efac; }
+
+    .comp-step { display: flex; gap: .6rem; margin-bottom: .5rem; align-items: flex-start; font-size: .71rem; line-height: 1.5; color: var(--muted); }
+    .cs-num { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: .6rem; font-weight: 800; flex-shrink: 0; margin-top: .05rem; }
+    .comp-col.bad  .cs-num { background: rgba(239,68,68,.15); color: #fca5a5; }
+    .comp-col.good .cs-num { background: rgba(34,197,94,.15); color: #86efac; }
+
+    /* code block */
+    .code-block { background: #030508; border: 1px solid rgba(255,255,255,.05); border-radius: 10px; padding: .75rem .95rem; margin-top: .75rem; font-family: 'JetBrains Mono', monospace; font-size: .64rem; line-height: 1.75; overflow-x: auto; }
+    .kw { color: #c084fc; } .fn { color: #60a5fa; } .str { color: #4ade80; } .cm { color: #1e3a2a; } .nm { color: #fb923c; }
+
+    /* ── right panel ──────────────── */
+    .right { display: flex; flex-direction: column; gap: 1.2rem; position: sticky; top: 1.5rem; }
+
+    /* controls */
+    .ctrl-card { background: var(--card); border: 1px solid var(--bdr); border-radius: 20px; padding: 1.3rem; }
+    .ctrl-title { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+
+    .field { margin-bottom: .9rem; }
+    .field label { font-size: .73rem; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: .45rem; }
+    .field label .val { font-family: 'JetBrains Mono', monospace; font-size: .68rem; color: #60a5fa; background: rgba(59,130,246,.1); padding: .1rem .4rem; border-radius: 5px; }
+    input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 99px; background: var(--bdr); outline: none; cursor: pointer; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #3b82f6; border: 3px solid var(--bg); box-shadow: 0 0 8px rgba(59,130,246,.5); cursor: pointer; transition: transform .15s; }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+
+    .btn-run { width: 100%; padding: .85rem; border-radius: 13px; border: none; font-family: 'Inter', sans-serif; font-size: .88rem; font-weight: 800; cursor: pointer; transition: all .22s; letter-spacing: .02em; }
+    .btn-run.danger { background: linear-gradient(135deg,#b91c1c,#ef4444); color: #fff; box-shadow: 0 4px 20px rgba(239,68,68,.3); }
+    .btn-run.safe   { background: linear-gradient(135deg,#15803d,#22c55e); color: #fff; box-shadow: 0 4px 20px rgba(34,197,94,.3); }
+    .btn-run:hover  { transform: translateY(-2px); filter: brightness(1.1); }
+    .btn-run:disabled { opacity: .45; cursor: not-allowed; transform: none; filter: none; }
+
+    .btn-reset { width: 100%; margin-top: .6rem; padding: .6rem; border-radius: 10px; border: 1px solid var(--bdr); background: transparent; color: var(--muted); font-family: 'Inter', sans-serif; font-size: .78rem; font-weight: 600; cursor: pointer; transition: all .2s; }
+    .btn-reset:hover { background: rgba(255,255,255,.04); color: var(--text); }
+
+    /* event log */
+    .log-card { background: var(--card); border: 1px solid var(--bdr); border-radius: 20px; padding: 1.2rem; }
+    .log-box { background: #020407; border: 1px solid rgba(255,255,255,.04); border-radius: 11px; padding: .75rem .9rem; font-family: 'JetBrains Mono', monospace; font-size: .64rem; line-height: 1.85; height: 300px; overflow-y: auto; }
+    .log-box::-webkit-scrollbar { width: 3px; }
+    .log-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 3px; }
+    .lr { display: flex; gap: .5rem; }
+    .lt { color: #0f172a; flex-shrink: 0; }
+
+    /* oversell flash */
+    @keyframes oversell-flash { 0%,100%{background:rgba(239,68,68,0)} 50%{background:rgba(239,68,68,.15)} }
+    .flash { animation: oversell-flash .4s ease; }
+
+    @media (max-width: 900px) { .main { grid-template-columns: 1fr; } .right { position: static; } .hero-row { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 500px) { .compare { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<canvas id="particle-canvas"></canvas>
+
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="chip">⚡ Race Condition</div>
+    <h1>Inventory Under Siege</h1>
+    <p>100 items. 10,000 concurrent buyers. Watch how atomic locking guarantees exactly 100 successful reservations and zero overselling.</p>
+  </header>
+
+  <!-- Mode toggle -->
+  <div class="mode-bar">
+    <button class="mode-btn active danger" id="mb-race" onclick="setMode('race')">⚠️ Race Condition (No Lock)</button>
+    <button class="mode-btn safe"          id="mb-safe" onclick="setMode('safe')">🔒 Atomic Lock (Redis DECR)</button>
+  </div>
+
+  <div class="main">
+    <!-- ── LEFT ─────────────────────────────────── -->
+    <div class="left">
+
+      <!-- Hero counters -->
+      <div class="hero-row">
+        <div class="hero-card" id="hc-stock">
+          <div class="hv" id="hv-stock" style="color:#22c55e">100</div>
+          <div class="hk">Stock Left</div>
+          <div class="hbar" id="hb-stock" style="background:#22c55e;width:100%"></div>
+        </div>
+        <div class="hero-card">
+          <div class="hv" id="hv-total" style="color:#3b82f6">0</div>
+          <div class="hk">Requests</div>
+          <div class="hbar" style="background:#3b82f6;width:100%"></div>
+        </div>
+        <div class="hero-card">
+          <div class="hv" id="hv-ok" style="color:#22c55e">0</div>
+          <div class="hk">Reserved ✓</div>
+          <div class="hbar" id="hb-ok" style="background:#22c55e;width:0%"></div>
+        </div>
+        <div class="hero-card" id="hc-over">
+          <div class="hv" id="hv-over" style="color:#22c55e">0</div>
+          <div class="hk">Oversold ⚠️</div>
+          <div class="hbar" id="hb-over" style="background:#22c55e;width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Arena -->
+      <div class="arena-card">
+        <div class="arena-title">
+          <span>🏟️ Concurrent Request Arena</span>
+          <span id="arena-status" style="font-size:.7rem;color:var(--muted)">Idle</span>
+        </div>
+        <div id="arena">
+          <div class="vault" id="vault">
+            <div class="v-num" id="vault-num">100</div>
+            <div class="v-lbl">in stock</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mechanism comparison -->
+      <div class="mech-card">
+        <div class="mech-title">🔬 How It Works</div>
+        <div class="compare">
+          <div class="comp-col bad">
+            <div class="comp-head">⚠️ Without Locking</div>
+            <div class="comp-step"><div class="cs-num">1</div><div>Thread A reads stock = 1</div></div>
+            <div class="comp-step"><div class="cs-num">2</div><div>Thread B reads stock = 1</div></div>
+            <div class="comp-step"><div class="cs-num">3</div><div>Thread A writes stock = 0 ✓</div></div>
+            <div class="comp-step"><div class="cs-num">4</div><div>Thread B writes stock = 0 ✓</div></div>
+            <div class="comp-step"><div class="cs-num">5</div><div style="color:#fca5a5;font-weight:600">Both succeed → stock = -1 💥</div></div>
+            <div class="code-block"><span class="cm">// ❌ UNSAFE — READ then WRITE</span>
+<span class="kw">const</span> stock = <span class="kw">await</span> db.<span class="fn">get</span>(<span class="str">'stock'</span>);
+<span class="kw">if</span> (stock > <span class="nm">0</span>) {
+  <span class="cm">// gap! another thread reads here</span>
+  <span class="kw">await</span> db.<span class="fn">set</span>(<span class="str">'stock'</span>, stock - <span class="nm">1</span>);
+  <span class="kw">return</span> <span class="str">'reserved'</span>; <span class="cm">// OVERSOLD!</span>
+}</div>
+          </div>
+          <div class="comp-col good">
+            <div class="comp-head">🔒 Redis Atomic DECR</div>
+            <div class="comp-step"><div class="cs-num">1</div><div>Lua script executes atomically</div></div>
+            <div class="comp-step"><div class="cs-num">2</div><div>Redis single-threaded guarantees</div></div>
+            <div class="comp-step"><div class="cs-num">3</div><div>DECR only if stock &gt; 0</div></div>
+            <div class="comp-step"><div class="cs-num">4</div><div>Returns new value atomically</div></div>
+            <div class="comp-step"><div class="cs-num">5</div><div style="color:#86efac;font-weight:600">Exactly 100 succeed → stock = 0 ✅</div></div>
+            <div class="code-block"><span class="cm">-- ✅ Redis Lua (atomic)</span>
+<span class="kw">local</span> stock = redis.<span class="fn">call</span>(<span class="str">'GET'</span>,KEYS[<span class="nm">1</span>])
+<span class="kw">if</span> tonumber(stock) > <span class="nm">0</span> <span class="kw">then</span>
+  redis.<span class="fn">call</span>(<span class="str">'DECR'</span>, KEYS[<span class="nm">1</span>])
+  <span class="kw">return</span> <span class="nm">1</span>   <span class="cm">-- reserved</span>
+<span class="kw">end</span>
+<span class="kw">return</span> <span class="nm">0</span>     <span class="cm">-- out of stock</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /left -->
+
+    <!-- ── RIGHT ─────────────────────────────────── -->
+    <div class="right">
+
+      <!-- Controls -->
+      <div class="ctrl-card">
+        <div class="ctrl-title">⚙️ Simulation Config</div>
+
+        <div class="field">
+          <label>Inventory <span class="val" id="lbl-inv">100</span></label>
+          <input type="range" id="sl-inv" min="10" max="500" value="100" step="10" oninput="onSlide()" />
+          <div style="display:flex;justify-content:space-between;font-size:.58rem;color:var(--muted);margin-top:.3rem"><span>10</span><span>500</span></div>
+        </div>
+
+        <div class="field">
+          <label>Concurrent Buyers <span class="val" id="lbl-buyers">10,000</span></label>
+          <input type="range" id="sl-buyers" min="100" max="20000" value="10000" step="100" oninput="onSlide()" />
+          <div style="display:flex;justify-content:space-between;font-size:.58rem;color:var(--muted);margin-top:.3rem"><span>100</span><span>20K</span></div>
+        </div>
+
+        <div class="field">
+          <label>Speed <span class="val" id="lbl-speed">Fast</span></label>
+          <input type="range" id="sl-speed" min="1" max="5" value="4" step="1" oninput="onSlide()" />
+          <div style="display:flex;justify-content:space-between;font-size:.58rem;color:var(--muted);margin-top:.3rem"><span>Slow</span><span>Instant</span></div>
+        </div>
+
+        <button class="btn-run danger" id="btn-run" onclick="runSim()">▶ Start Simulation</button>
+        <button class="btn-reset" onclick="resetSim()">↺ Reset</button>
+      </div>
+
+      <!-- Log -->
+      <div class="log-card">
+        <div class="ctrl-title">📋 Event Stream</div>
+        <div class="log-box" id="log-box">
+          <div class="lr"><span class="lt">──</span><span style="color:#0f172a">Idle. Configure and run.</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════ PARTICLE BG ═══════════════════════════════════════════ */
+(function () {
+  const c = document.getElementById('particle-canvas');
+  const ctx = c.getContext('2d');
+  let particles = [];
+  function init() {
+    c.width = innerWidth; c.height = innerHeight;
+    particles = Array.from({ length: 60 }, () => ({
+      x: Math.random() * c.width, y: Math.random() * c.height,
+      r: Math.random() * 1.2 + .2,
+      a: Math.random() * .5 + .05,
+      da: (Math.random() - .5) * .003,
+    }));
+  }
+  function draw() {
+    ctx.clearRect(0, 0, c.width, c.height);
+    // subtle grid
+    ctx.strokeStyle = 'rgba(255,255,255,.018)'; ctx.lineWidth = 1;
+    const g = 70;
+    for (let x = 0; x < c.width; x += g) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, c.height); ctx.stroke(); }
+    for (let y = 0; y < c.height; y += g) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke(); }
+    particles.forEach(p => {
+      p.a = Math.max(.02, Math.min(.6, p.a + p.da));
+      if (p.a <= .02 || p.a >= .6) p.da *= -1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(148,163,184,${p.a})`; ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  window.addEventListener('resize', init); init(); draw();
+})();
+
+/* ══════ STATE ════════════════════════════════════════════════ */
+let mode = 'race';
+let running = false;
+let simHandle = null;
+let stock = 100, okCount = 0, totalCount = 0, oversold = 0;
+let INVENTORY = 100, BUYERS = 10000;
+
+/* ══════ MODE ════════════════════════════════════════════════ */
+function setMode(m) {
+  mode = m;
+  document.getElementById('mb-race').classList.toggle('active', m === 'race');
+  document.getElementById('mb-safe').classList.toggle('active', m === 'safe');
+  document.getElementById('mb-race').classList.toggle('danger', m === 'race');
+  document.getElementById('mb-safe').classList.toggle('safe',   m === 'safe');
+
+  const btn = document.getElementById('btn-run');
+  if (m === 'race') { btn.className = 'btn-run danger'; btn.textContent = '▶ Start Simulation'; }
+  else              { btn.className = 'btn-run safe';   btn.textContent = '▶ Start Simulation'; }
+
+  resetSim();
+}
+
+/* ══════ SLIDERS ══════════════════════════════════════════════ */
+const SPEEDS = ['Slowest','Slow','Medium','Fast','Instant'];
+function onSlide() {
+  INVENTORY = +document.getElementById('sl-inv').value;
+  BUYERS    = +document.getElementById('sl-buyers').value;
+  const spd = +document.getElementById('sl-speed').value;
+  document.getElementById('lbl-inv').textContent    = INVENTORY.toLocaleString();
+  document.getElementById('lbl-buyers').textContent = BUYERS.toLocaleString();
+  document.getElementById('lbl-speed').textContent  = SPEEDS[spd - 1];
+}
+
+/* ══════ LOG ══════════════════════════════════════════════════ */
+let logCount = 0;
+function log(msg, color = '#1e293b') {
+  const box = document.getElementById('log-box');
+  if (logCount === 0) box.innerHTML = '';
+  logCount++;
+  const t = new Date().toLocaleTimeString('en-GB', { hour12: false, second: '2-digit', fractionalSecondDigits: 3 });
+  const el = document.createElement('div');
+  el.className = 'lr';
+  el.innerHTML = `<span class="lt">[${t}]</span><span style="color:${color}">${msg}</span>`;
+  box.appendChild(el);
+  if (box.children.length > 200) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ══════ ARENA DOTS ══════════════════════════════════════════ */
+const arena = document.getElementById('arena');
+function spawnDot(success, oversoldFlag) {
+  const dot = document.createElement('div');
+  dot.className = 'dot';
+  const angle = Math.random() * Math.PI * 2;
+  const r = 90 + Math.random() * 100;
+  const cx = arena.offsetWidth / 2, cy = arena.offsetHeight / 2;
+  const startX = cx + Math.cos(angle) * r;
+  const startY = cy + Math.sin(angle) * r;
+  dot.style.left = startX + 'px'; dot.style.top = startY + 'px';
+
+  const color = oversoldFlag ? '#ff0' : success ? '#22c55e' : '#475569';
+  dot.style.background = color;
+  dot.style.boxShadow  = `0 0 6px ${color}`;
+  if (oversoldFlag) dot.style.width = dot.style.height = '12px';
+  arena.appendChild(dot);
+
+  // fly toward center
+  const dur = 400 + Math.random() * 300;
+  const kf = [
+    { left: startX + 'px', top: startY + 'px', opacity: 1 },
+    { left: (cx - 4) + 'px', top: (cy - 4) + 'px', opacity: 0 },
+  ];
+  const anim = dot.animate(kf, { duration: dur, easing: 'ease-in', fill: 'forwards' });
+  anim.onfinish = () => dot.remove();
+}
+
+/* ══════ HERO UPDATES ════════════════════════════════════════ */
+function updateHero() {
+  const stockPct = Math.max(0, stock / INVENTORY * 100);
+  document.getElementById('hv-stock').textContent = Math.max(0, stock);
+  document.getElementById('hv-stock').style.color = stock > 20 ? '#22c55e' : stock > 0 ? '#f59e0b' : '#ef4444';
+  document.getElementById('hb-stock').style.width = stockPct + '%';
+  document.getElementById('hb-stock').style.background = stock > 20 ? '#22c55e' : stock > 0 ? '#f59e0b' : '#ef4444';
+
+  document.getElementById('hv-total').textContent = totalCount.toLocaleString();
+  document.getElementById('hv-ok').textContent    = okCount.toLocaleString();
+  document.getElementById('hb-ok').style.width    = (okCount / INVENTORY * 100) + '%';
+
+  const isOver = oversold > 0;
+  document.getElementById('hv-over').textContent  = oversold;
+  document.getElementById('hv-over').style.color  = isOver ? '#ef4444' : '#22c55e';
+  document.getElementById('hb-over').style.background = isOver ? '#ef4444' : '#22c55e';
+  document.getElementById('hb-over').style.width  = isOver ? Math.min(oversold / 10 * 100, 100) + '%' : '0%';
+
+  document.getElementById('vault-num').textContent = Math.max(0, stock);
+  const vault = document.getElementById('vault');
+  vault.classList.toggle('danger', stock <= 0);
+}
+
+/* ══════ SIMULATION ENGINE ════════════════════════════════════ */
+async function runSim() {
+  if (running) return;
+  resetSim(false);
+  running = true;
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('arena-status').textContent = mode === 'race' ? '⚠️ RACE CONDITION ACTIVE' : '🔒 ATOMIC LOCK ACTIVE';
+  document.getElementById('arena-status').style.color = mode === 'race' ? '#fca5a5' : '#86efac';
+
+  const spd     = +document.getElementById('sl-speed').value;
+  const delay   = [30, 15, 8, 3, 0][spd - 1];
+  const batch   = [1, 3, 8, 25, 100][spd - 1];
+
+  log(`── ${mode === 'race' ? '⚠️ Race Condition Mode' : '🔒 Atomic Lock Mode'} ──`, mode === 'race' ? '#fca5a5' : '#86efac');
+  log(`Inventory: ${INVENTORY}  Buyers: ${BUYERS.toLocaleString()}`, '#475569');
+
+  // Simulate race condition: some requests "read" the same value simultaneously
+  // We model this by occasionally allowing two reads before the write in race mode
+  let raceBuffer = []; // concurrent reads that haven't written yet
+
+  const TOTAL = BUYERS;
+  let i = 0;
+
+  function tick() {
+    if (!running || i >= TOTAL) {
+      finish();
+      return;
+    }
+
+    for (let b = 0; b < batch && i < TOTAL; b++, i++) {
+      totalCount++;
+
+      if (mode === 'race') {
+        // Race condition simulation:
+        // With probability ~0.3 at low stock, multiple threads read the same stock value
+        const readStock = stock + (Math.random() < .28 && stock > 0 && stock <= INVENTORY * .4 ? 1 : 0);
+        if (readStock > 0) {
+          stock--; // write (but another thread may have also passed the read check)
+          if (stock < 0) {
+            oversold++;
+            const msg = `OVERSOLD! stock=${stock}  req #${i}`;
+            log(msg, '#ef4444');
+            arena.classList.add('flash'); setTimeout(() => arena.classList.remove('flash'), 400);
+            spawnDot(true, true);
+          } else {
+            okCount++;
+            if (okCount <= 10 || okCount % 25 === 0) log(`Reserved  req #${i}  stock→${stock}`, '#4ade80');
+            spawnDot(true, false);
+          }
+        } else {
+          if (totalCount % 500 === 0) log(`Rejected  req #${i}  out of stock`, '#475569');
+          spawnDot(false, false);
+        }
+      } else {
+        // Safe atomic mode: strict, no race
+        if (stock > 0) {
+          stock--;
+          okCount++;
+          if (okCount <= 10 || okCount % 25 === 0) log(`✓ Atomic DECR  stock→${stock}  req #${i}`, '#4ade80');
+          spawnDot(true, false);
+        } else {
+          if (totalCount % 600 === 0) log(`✗ Out of stock  req #${i}`, '#1e293b');
+          spawnDot(false, false);
+        }
+      }
+
+      updateHero();
+    }
+
+    if (delay > 0) simHandle = setTimeout(tick, delay);
+    else           simHandle = requestAnimationFrame(tick);
+  }
+
+  tick();
+}
+
+function finish() {
+  running = false;
+  document.getElementById('btn-run').disabled = false;
+  document.getElementById('arena-status').textContent = 'Completed';
+
+  const safe = oversold === 0;
+  log(`── Simulation complete ──`, '#334155');
+  log(`Total requests : ${totalCount.toLocaleString()}`, '#475569');
+  log(`Reserved       : ${okCount}`, '#4ade80');
+  log(`Oversold       : ${oversold}`, oversold > 0 ? '#ef4444' : '#4ade80');
+  log(`Result         : ${safe ? '✅ Zero overselling' : `⚠️ ${oversold} oversells!`}`, safe ? '#4ade80' : '#ef4444');
+}
+
+function resetSim(full = true) {
+  if (simHandle) { clearTimeout(simHandle); cancelAnimationFrame(simHandle); }
+  running = false;
+  logCount = 0;
+  INVENTORY = +document.getElementById('sl-inv').value;
+  stock = INVENTORY; okCount = 0; totalCount = 0; oversold = 0;
+
+  document.getElementById('hv-stock').textContent = INVENTORY;
+  document.getElementById('hv-stock').style.color = '#22c55e';
+  document.getElementById('hb-stock').style.width = '100%';
+  document.getElementById('hb-stock').style.background = '#22c55e';
+  document.getElementById('hv-total').textContent = '0';
+  document.getElementById('hv-ok').textContent    = '0';
+  document.getElementById('hb-ok').style.width    = '0%';
+  document.getElementById('hv-over').textContent  = '0';
+  document.getElementById('hv-over').style.color  = '#22c55e';
+  document.getElementById('hb-over').style.width  = '0%';
+  document.getElementById('vault-num').textContent = INVENTORY;
+  document.getElementById('vault').classList.remove('danger');
+  document.getElementById('arena-status').textContent = 'Idle';
+  document.getElementById('arena-status').style.color = '';
+  document.getElementById('btn-run').disabled = false;
+
+  // clear dots
+  arena.querySelectorAll('.dot').forEach(d => d.remove());
+
+  document.getElementById('log-box').innerHTML =
+    `<div class="lr"><span class="lt">──</span><span style="color:#0f172a">Ready. Press ▶ to run.</span></div>`;
+}
+
+// init
+onSlide();
+</script>
+</body>
+</html>

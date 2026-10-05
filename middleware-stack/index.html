@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Express Middleware Stack — FURNISTORM API</title>
+  <meta name="description" content="Interactive visualization of the Express.js middleware pipeline: Helmet, CORS, Rate Limiting, Validation, Error Handling, Swagger, Logging." />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:    #05070e;
+      --s1:    #080c1a;
+      --card:  #0d1424;
+      --card2: #111b2e;
+      --bdr:   rgba(255,255,255,.07);
+      --text:  #eef2ff;
+      --muted: #64748b;
+
+      /* layer colours */
+      --lc0: #f87171;  /* Helmet */
+      --lc1: #fb923c;  /* CORS */
+      --lc2: #facc15;  /* Rate Limit */
+      --lc3: #4ade80;  /* Validation */
+      --lc4: #f472b6;  /* Error */
+      --lc5: #60a5fa;  /* Swagger */
+      --lc6: #a78bfa;  /* Logging */
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 60% 45% at 5% 5%,   rgba(248,113,113,.06) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 50% at 95% 95%,  rgba(96,165,250,.06)  0%, transparent 55%),
+        radial-gradient(ellipse 40% 60% at 50% 50%,  rgba(167,139,250,.04) 0%, transparent 65%);
+    }
+    #bg-c { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .35; }
+
+    /* ── layout ─────────────────────────────── */
+    .app { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+    /* ── header ──────────────────────────────── */
+    header { text-align: center; margin-bottom: 3rem; }
+    .chip {
+      display: inline-flex; align-items: center; gap: .45rem;
+      font-size: .65rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+      padding: .28rem .9rem; border-radius: 999px;
+      background: rgba(96,165,250,.1); border: 1px solid rgba(96,165,250,.25); color: #93c5fd;
+      margin-bottom: 1rem;
+    }
+    .chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #93c5fd; animation: blink 1.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.1} }
+    header h1 {
+      font-size: clamp(1.9rem, 4vw, 3rem); font-weight: 900; line-height: 1.1; margin-bottom: .7rem;
+      background: linear-gradient(140deg, #eef2ff 0%, #93c5fd 40%, #c4b5fd 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    header p { color: var(--muted); font-size: .88rem; max-width: 480px; margin: 0 auto; line-height: 1.75; }
+
+    /* ── main grid ───────────────────────────── */
+    .main { display: grid; grid-template-columns: 1fr 380px; gap: 1.8rem; align-items: start; }
+
+    /* ── pipeline ────────────────────────────── */
+    .pipeline-wrap { display: flex; flex-direction: column; gap: 0; }
+
+    /* HTTP request entry */
+    .req-entry {
+      background: var(--card); border: 1px solid var(--bdr); border-radius: 16px;
+      padding: .85rem 1.2rem; margin-bottom: .2rem;
+      display: flex; align-items: center; gap: 1rem;
+    }
+    .req-method {
+      font-family: 'JetBrains Mono', monospace; font-size: .72rem; font-weight: 700;
+      padding: .22rem .6rem; border-radius: 6px;
+      background: rgba(96,165,250,.15); color: #60a5fa; border: 1px solid rgba(96,165,250,.25);
+    }
+    .req-path {
+      font-family: 'JetBrains Mono', monospace; font-size: .78rem; color: var(--text); flex: 1;
+    }
+    .req-badge {
+      font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      padding: .15rem .5rem; border-radius: 5px; background: rgba(74,222,128,.1); color: #4ade80; border: 1px solid rgba(74,222,128,.15);
+    }
+
+    /* connector */
+    .conn {
+      display: flex; flex-direction: column; align-items: center; width: 100%;
+      padding: 2px 0; position: relative;
+    }
+    .conn-line { width: 2px; height: 36px; background: linear-gradient(to bottom, transparent, var(--clr, #374151), transparent); position: relative; overflow: hidden; }
+    .conn-line::after { content: ''; position: absolute; top: -100%; left: 0; right: 0; height: 100%; background: linear-gradient(to bottom, transparent, rgba(255,255,255,.5), transparent); animation: flow 2s linear infinite; }
+    @keyframes flow { 0%{top:-100%} 100%{top:200%} }
+    .conn-arr { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--clr, #374151); filter: drop-shadow(0 0 3px var(--clr, #374151)); }
+    .conn-tag {
+      font-family: 'JetBrains Mono', monospace; font-size: .58rem; font-weight: 600; letter-spacing: .07em;
+      color: var(--clr, var(--muted)); background: color-mix(in srgb, var(--clr, #374151) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--clr, #374151) 22%, transparent);
+      padding: .15rem .5rem; border-radius: 5px; margin: .25rem 0; white-space: nowrap;
+    }
+
+    /* ── middleware layer card ───────────────── */
+    .layer {
+      background: var(--card); border: 1px solid var(--bdr); border-radius: 18px;
+      padding: 1.2rem 1.3rem; cursor: pointer; position: relative;
+      transition: transform .2s, box-shadow .2s, border-color .3s;
+      overflow: hidden;
+    }
+    .layer:hover { transform: translateX(4px); }
+    .layer::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--lc); border-radius: 4px 0 0 4px; }
+    .layer::after  { content: ''; position: absolute; inset: 0; border-radius: 18px; background: color-mix(in srgb, var(--lc) 4%, transparent); pointer-events: none; opacity: 0; transition: opacity .3s; }
+    .layer:hover::after { opacity: 1; }
+
+    .layer.active-layer {
+      border-color: color-mix(in srgb, var(--lc) 40%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--lc) 15%, transparent), 0 8px 32px color-mix(in srgb, var(--lc) 15%, transparent), inset 0 0 40px color-mix(in srgb, var(--lc) 4%, transparent);
+      animation: layer-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes layer-pulse {
+      0%,100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--lc) 30%, transparent), 0 6px 28px color-mix(in srgb, var(--lc) 12%, transparent); }
+      50%      { box-shadow: 0 0 0 2px color-mix(in srgb, var(--lc) 50%, transparent), 0 12px 40px color-mix(in srgb, var(--lc) 22%, transparent); }
+    }
+
+    .layer-top { display: flex; align-items: center; gap: .9rem; margin-bottom: .6rem; }
+    .layer-icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-size: 1.3rem; flex-shrink: 0; background: color-mix(in srgb, var(--lc) 12%, transparent); border: 1px solid color-mix(in srgb, var(--lc) 22%, transparent); }
+    .layer-meta { flex: 1; min-width: 0; }
+    .layer-num  { font-size: .58rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--lc); margin-bottom: .1rem; }
+    .layer-name { font-size: 1rem; font-weight: 800; color: var(--text); }
+    .layer-pkg  { font-family: 'JetBrains Mono', monospace; font-size: .63rem; color: var(--muted); margin-top: .1rem; }
+    .layer-badge { font-size: .58rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: .18rem .5rem; border-radius: 6px; background: color-mix(in srgb, var(--lc) 12%, transparent); color: var(--lc); border: 1px solid color-mix(in srgb, var(--lc) 20%, transparent); flex-shrink: 0; }
+
+    .layer-desc { font-size: .76rem; color: var(--muted); line-height: 1.6; margin-bottom: .7rem; }
+
+    /* features row */
+    .layer-feats { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .feat { font-size: .62rem; font-weight: 600; padding: .18rem .55rem; border-radius: 6px; background: color-mix(in srgb, var(--lc) 8%, transparent); color: color-mix(in srgb, var(--lc) 80%, #fff); border: 1px solid color-mix(in srgb, var(--lc) 15%, transparent); }
+
+    /* expandable code */
+    .layer-code {
+      margin-top: .8rem; display: none;
+      background: #050810; border: 1px solid rgba(255,255,255,.06); border-radius: 10px;
+      padding: .85rem 1rem; overflow-x: auto;
+    }
+    .layer-code pre { font-family: 'JetBrains Mono', monospace; font-size: .67rem; line-height: 1.7; color: #94a3b8; white-space: pre; }
+    .kw { color: #c084fc; } .fn { color: #60a5fa; } .str { color: #4ade80; }
+    .cm { color: #374151; } .nm { color: #fb923c; } .op { color: #e2e8f0; }
+    .layer.open .layer-code { display: block; }
+
+    /* response tail */
+    .res-tail {
+      background: var(--card); border: 1px solid rgba(74,222,128,.2); border-radius: 16px;
+      padding: .85rem 1.2rem; margin-top: .2rem;
+      display: flex; align-items: center; gap: 1rem;
+    }
+    .res-status { font-family: 'JetBrains Mono', monospace; font-size: .72rem; font-weight: 700; padding: .22rem .6rem; border-radius: 6px; background: rgba(74,222,128,.12); color: #4ade80; border: 1px solid rgba(74,222,128,.2); }
+    .res-ms { font-family: 'JetBrains Mono', monospace; font-size: .72rem; color: var(--muted); margin-left: auto; }
+
+    /* ── right panel ─────────────────────────── */
+    .right-col { display: flex; flex-direction: column; gap: 1.2rem; position: sticky; top: 1.5rem; }
+
+    /* controls */
+    .ctrl-card { background: var(--card); border: 1px solid var(--bdr); border-radius: 18px; padding: 1.3rem; }
+    .ctrl-title { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+
+    .req-type-btns { display: flex; gap: .6rem; margin-bottom: .9rem; }
+    .rt-btn { flex: 1; padding: .55rem; border-radius: 9px; border: 1.5px solid var(--bdr); background: var(--card2); color: var(--muted); font-family: 'Inter', sans-serif; font-size: .74rem; font-weight: 600; cursor: pointer; transition: all .2s; text-align: center; }
+    .rt-btn.sel { border-color: rgba(96,165,250,.4); color: #60a5fa; background: rgba(96,165,250,.08); }
+    .rt-btn:hover:not(.sel) { border-color: rgba(255,255,255,.15); color: var(--text); }
+
+    .btn-sim {
+      width: 100%; padding: .82rem; border-radius: 12px; border: none;
+      font-family: 'Inter', sans-serif; font-size: .85rem; font-weight: 800;
+      cursor: pointer; transition: all .22s;
+      background: linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%);
+      color: #fff; box-shadow: 0 4px 20px rgba(99,102,241,.3); letter-spacing: .02em;
+    }
+    .btn-sim:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,.5); }
+    .btn-sim:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-reset { width: 100%; margin-top: .6rem; padding: .6rem; border-radius: 10px; border: 1px solid var(--bdr); background: transparent; color: var(--muted); font-family: 'Inter', sans-serif; font-size: .78rem; font-weight: 600; cursor: pointer; transition: all .2s; }
+    .btn-reset:hover { background: rgba(255,255,255,.04); color: var(--text); }
+
+    /* request log */
+    .log-card { background: var(--card); border: 1px solid var(--bdr); border-radius: 18px; padding: 1.2rem; }
+    .log-inner { background: #040710; border: 1px solid rgba(255,255,255,.05); border-radius: 11px; padding: .8rem .95rem; font-family: 'JetBrains Mono', monospace; font-size: .67rem; line-height: 1.9; height: 280px; overflow-y: auto; scroll-behavior: smooth; }
+    .log-inner::-webkit-scrollbar { width: 3px; }
+    .log-inner::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 3px; }
+    .log-row { display: flex; gap: .55rem; }
+    .log-t { color: #1e293b; flex-shrink: 0; }
+    .log-s { }
+
+    /* stats */
+    .stats-card { background: var(--card); border: 1px solid var(--bdr); border-radius: 18px; padding: 1.2rem; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
+    .stat { background: var(--card2); border: 1px solid var(--bdr); border-radius: 11px; padding: .75rem; text-align: center; }
+    .stat .sv { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 800; }
+    .stat .sk { font-size: .58rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: .2rem; }
+
+    @media (max-width: 900px) { .main { grid-template-columns: 1fr; } .right-col { position: static; } }
+  </style>
+</head>
+<body>
+<canvas id="bg-c"></canvas>
+
+<div class="app">
+  <header>
+    <div class="chip">⚡ Express.js API</div>
+    <h1>Middleware Stack</h1>
+    <p>Every incoming request passes through these 7 layers. Click any layer to expand its config. Simulate a request to watch it flow.</p>
+  </header>
+
+  <div class="main">
+
+    <!-- ── PIPELINE ──────────────────────────────── -->
+    <div class="pipeline-wrap" id="pipeline">
+
+      <!-- HTTP Request -->
+      <div class="req-entry" id="req-entry">
+        <span class="req-method" id="req-method-badge">GET</span>
+        <span class="req-path" id="req-path-txt">GET /api/products?limit=20</span>
+        <span class="req-badge">Incoming</span>
+      </div>
+
+      <!-- ▼ Layer 0: Helmet -->
+      <div class="conn" style="--clr:var(--lc0)"><div class="conn-line"></div><span class="conn-tag">security headers</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-0" style="--lc:var(--lc0)" onclick="toggleLayer(0)">
+        <div class="layer-top">
+          <div class="layer-icon">🪖</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 01 · Security</div>
+            <div class="layer-name">Helmet</div>
+            <div class="layer-pkg">npm: helmet@7 · ~4.2ms</div>
+          </div>
+          <div class="layer-badge">First</div>
+        </div>
+        <div class="layer-desc">Sets ~15 HTTP security headers to protect against common web vulnerabilities like XSS, clickjacking, and MIME-sniffing.</div>
+        <div class="layer-feats">
+          <span class="feat">Content-Security-Policy</span>
+          <span class="feat">X-Frame-Options: DENY</span>
+          <span class="feat">HSTS</span>
+          <span class="feat">X-Content-Type-Options</span>
+          <span class="feat">Referrer-Policy</span>
+        </div>
+        <div class="layer-code"><pre><span class="kw">import</span> helmet <span class="kw">from</span> <span class="str">'helmet'</span>;<span class="cm">
+// Applied globally — must be first middleware</span>
+app.<span class="fn">use</span>(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: [<span class="str">"'self'"</span>],
+      scriptSrc:  [<span class="str">"'self'"</span>, <span class="str">"'nonce-{nonce}'"</span>],
+    }
+  },
+  hsts: { maxAge: <span class="nm">31536000</span>, includeSubDomains: <span class="kw">true</span> },
+  frameguard: { action: <span class="str">'deny'</span> },
+}));</pre></div>
+      </div>
+
+      <!-- ▼ Layer 1: CORS -->
+      <div class="conn" style="--clr:var(--lc1)"><div class="conn-line"></div><span class="conn-tag">origin check</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-1" style="--lc:var(--lc1)" onclick="toggleLayer(1)">
+        <div class="layer-top">
+          <div class="layer-icon">🌐</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 02 · Access</div>
+            <div class="layer-name">CORS</div>
+            <div class="layer-pkg">npm: cors@2 · ~1.1ms</div>
+          </div>
+          <div class="layer-badge">Gatekeeper</div>
+        </div>
+        <div class="layer-desc">Enforces Cross-Origin Resource Sharing policy. Whitelists allowed origins, methods and headers. Pre-flight OPTIONS requests are handled automatically.</div>
+        <div class="layer-feats">
+          <span class="feat">Origin whitelist</span>
+          <span class="feat">Credentials: true</span>
+          <span class="feat">OPTIONS preflight</span>
+          <span class="feat">Exposed headers</span>
+        </div>
+        <div class="layer-code"><pre><span class="kw">import</span> cors <span class="kw">from</span> <span class="str">'cors'</span>;
+
+<span class="kw">const</span> ALLOWED = [
+  <span class="str">'https://furnistorm.in'</span>,
+  <span class="str">'https://admin.furnistorm.in'</span>,
+];
+
+app.<span class="fn">use</span>(cors({
+  origin: (origin, cb) =>
+    ALLOWED.includes(origin) ? cb(<span class="kw">null</span>, <span class="kw">true</span>)
+    : cb(<span class="kw">new</span> Error(<span class="str">'Origin not allowed'</span>)),
+  methods: [<span class="str">'GET'</span>,<span class="str">'POST'</span>,<span class="str">'PUT'</span>,<span class="str">'PATCH'</span>,<span class="str">'DELETE'</span>],
+  credentials: <span class="kw">true</span>,
+  maxAge: <span class="nm">86400</span>,
+}));</pre></div>
+      </div>
+
+      <!-- ▼ Layer 2: Rate Limiting -->
+      <div class="conn" style="--clr:var(--lc2)"><div class="conn-line"></div><span class="conn-tag">throttle check</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-2" style="--lc:var(--lc2)" onclick="toggleLayer(2)">
+        <div class="layer-top">
+          <div class="layer-icon">⏱️</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 03 · Throttle</div>
+            <div class="layer-name">Rate Limiting</div>
+            <div class="layer-pkg">npm: express-rate-limit@7 · ~0.8ms</div>
+          </div>
+          <div class="layer-badge">100 req/min</div>
+        </div>
+        <div class="layer-desc">Prevents brute-force and DDoS attacks by capping requests per IP. Separate stricter limits on auth routes. Returns 429 on breach with Retry-After header.</div>
+        <div class="layer-feats">
+          <span class="feat">100 req / 60s</span>
+          <span class="feat">Auth: 10 req / 15min</span>
+          <span class="feat">Redis store</span>
+          <span class="feat">X-RateLimit-* headers</span>
+          <span class="feat">429 Too Many Requests</span>
+        </div>
+        <div class="layer-code"><pre><span class="kw">import</span> rateLimit <span class="kw">from</span> <span class="str">'express-rate-limit'</span>;
+<span class="kw">import</span> RedisStore  <span class="kw">from</span> <span class="str">'rate-limit-redis'</span>;
+
+<span class="kw">const</span> limiter = <span class="fn">rateLimit</span>({
+  windowMs: <span class="nm">60_000</span>,   <span class="cm">// 1 minute</span>
+  max:      <span class="nm">100</span>,
+  standardHeaders: <span class="kw">true</span>,
+  legacyHeaders:   <span class="kw">false</span>,
+  store: <span class="kw">new</span> <span class="fn">RedisStore</span>({ client: redis }),
+  message: { error: <span class="str">'Too many requests'</span> },
+});
+app.<span class="fn">use</span>(<span class="str">'/api'</span>, limiter);</pre></div>
+      </div>
+
+      <!-- ▼ Layer 3: Validation -->
+      <div class="conn" style="--clr:var(--lc3)"><div class="conn-line"></div><span class="conn-tag">schema check</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-3" style="--lc:var(--lc3)" onclick="toggleLayer(3)">
+        <div class="layer-top">
+          <div class="layer-icon">🔍</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 04 · Input</div>
+            <div class="layer-name">Validation</div>
+            <div class="layer-pkg">npm: zod@3 + express-zod-api · ~2.4ms</div>
+          </div>
+          <div class="layer-badge">Schema</div>
+        </div>
+        <div class="layer-desc">Validates request body, query params and route parameters against Zod schemas. Returns structured 400 error with field-level details before business logic executes.</div>
+        <div class="layer-feats">
+          <span class="feat">Body schema</span>
+          <span class="feat">Query params</span>
+          <span class="feat">Route params</span>
+          <span class="feat">400 + field errors</span>
+          <span class="feat">TypeScript inference</span>
+        </div>
+        <div class="layer-code"><pre><span class="kw">import</span> { z } <span class="kw">from</span> <span class="str">'zod'</span>;
+
+<span class="kw">const</span> ProductQuerySchema = z.<span class="fn">object</span>({
+  limit:    z.<span class="fn">coerce</span>.<span class="fn">number</span>().<span class="fn">min</span>(<span class="nm">1</span>).<span class="fn">max</span>(<span class="nm">100</span>).<span class="fn">default</span>(<span class="nm">20</span>),
+  category: z.<span class="fn">enum</span>([<span class="str">'sofa'</span>,<span class="str">'chair'</span>,<span class="str">'table'</span>]).<span class="fn">optional</span>(),
+  minPrice: z.<span class="fn">coerce</span>.<span class="fn">number</span>().<span class="fn">nonnegative</span>().<span class="fn">optional</span>(),
+});
+
+<span class="kw">const</span> <span class="fn">validate</span> = (schema) => (req, res, next) => {
+  <span class="kw">const</span> result = schema.<span class="fn">safeParse</span>(req.query);
+  <span class="kw">if</span> (!result.success)
+    <span class="kw">return</span> next(<span class="kw">new</span> <span class="fn">ValidationError</span>(result.error));
+  req.validatedQuery = result.data;
+  <span class="fn">next</span>();
+};</pre></div>
+      </div>
+
+      <!-- ▼ Layer 4: Central Error Handling -->
+      <div class="conn" style="--clr:var(--lc4)"><div class="conn-line"></div><span class="conn-tag">catch all errors</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-4" style="--lc:var(--lc4)" onclick="toggleLayer(4)">
+        <div class="layer-top">
+          <div class="layer-icon">🛡️</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 05 · Safety Net</div>
+            <div class="layer-name">Central Error Handler</div>
+            <div class="layer-pkg">Custom 4-arg Express middleware · ~0.3ms</div>
+          </div>
+          <div class="layer-badge">Global</div>
+        </div>
+        <div class="layer-desc">Single error funnel registered last. Classifies errors by type (Validation, Auth, NotFound, DB, Unknown), maps to correct HTTP status, and masks stack traces in production.</div>
+        <div class="layer-feats">
+          <span class="feat">Error classification</span>
+          <span class="feat">HTTP status mapping</span>
+          <span class="feat">Prod stack masking</span>
+          <span class="feat">Correlation ID</span>
+          <span class="feat">RFC 7807 format</span>
+        </div>
+        <div class="layer-code"><pre><span class="cm">// Must be registered AFTER all routes</span>
+app.<span class="fn">use</span>((err, req, res, next) => {
+  <span class="kw">const</span> status = err.statusCode ?? <span class="nm">500</span>;
+  <span class="kw">const</span> isProd = process.env.NODE_ENV === <span class="str">'production'</span>;
+
+  logger.<span class="fn">error</span>({ err, correlationId: req.id });
+
+  res.<span class="fn">status</span>(status).<span class="fn">json</span>({
+    type:     err.type   ?? <span class="str">'INTERNAL_ERROR'</span>,
+    title:    err.message ?? <span class="str">'Something went wrong'</span>,
+    status,
+    detail:   isProd ? <span class="kw">undefined</span> : err.stack,
+    instance: req.originalUrl,
+    correlationId: req.id,
+  });
+});</pre></div>
+      </div>
+
+      <!-- ▼ Layer 5: Swagger -->
+      <div class="conn" style="--clr:var(--lc5)"><div class="conn-line"></div><span class="conn-tag">api docs</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-5" style="--lc:var(--lc5)" onclick="toggleLayer(5)">
+        <div class="layer-top">
+          <div class="layer-icon">📖</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 06 · Docs</div>
+            <div class="layer-name">Swagger / OpenAPI</div>
+            <div class="layer-pkg">npm: swagger-jsdoc + swagger-ui-express · ~12ms cold</div>
+          </div>
+          <div class="layer-badge">OAS 3.1</div>
+        </div>
+        <div class="layer-desc">Auto-generates OpenAPI 3.1 spec from JSDoc annotations. Serves interactive Swagger UI at <code style="font-family:'JetBrains Mono',monospace;font-size:.75em;color:#60a5fa">/api/docs</code>. Disabled in production via env flag.</div>
+        <div class="layer-feats">
+          <span class="feat">OAS 3.1 spec</span>
+          <span class="feat">JSDoc annotations</span>
+          <span class="feat">/api/docs UI</span>
+          <span class="feat">Bearer auth scheme</span>
+          <span class="feat">Disabled in prod</span>
+        </div>
+        <div class="layer-code"><pre><span class="kw">import</span> swaggerJsdoc  <span class="kw">from</span> <span class="str">'swagger-jsdoc'</span>;
+<span class="kw">import</span> swaggerUi     <span class="kw">from</span> <span class="str">'swagger-ui-express'</span>;
+
+<span class="kw">const</span> spec = <span class="fn">swaggerJsdoc</span>({
+  definition: {
+    openapi: <span class="str">'3.1.0'</span>,
+    info: { title: <span class="str">'FURNISTORM API'</span>, version: <span class="str">'1.0.0'</span> },
+    components: { securitySchemes: {
+      bearerAuth: { type: <span class="str">'http'</span>, scheme: <span class="str">'bearer'</span> }
+    }}
+  },
+  apis: [<span class="str">'./src/routes/**/*.ts'</span>],
+});
+
+<span class="kw">if</span> (process.env.NODE_ENV !== <span class="str">'production'</span>)
+  app.<span class="fn">use</span>(<span class="str">'/api/docs'</span>, swaggerUi.<span class="fn">serve</span>, swaggerUi.<span class="fn">setup</span>(spec));</pre></div>
+      </div>
+
+      <!-- ▼ Layer 6: Logging -->
+      <div class="conn" style="--clr:var(--lc6)"><div class="conn-line"></div><span class="conn-tag">structured log</span><div class="conn-arr"></div></div>
+      <div class="layer" id="layer-6" style="--lc:var(--lc6)" onclick="toggleLayer(6)">
+        <div class="layer-top">
+          <div class="layer-icon">📝</div>
+          <div class="layer-meta">
+            <div class="layer-num">Layer 07 · Observability</div>
+            <div class="layer-name">Logging</div>
+            <div class="layer-pkg">npm: pino@8 + pino-http · ~0.5ms</div>
+          </div>
+          <div class="layer-badge">JSON logs</div>
+        </div>
+        <div class="layer-desc">Structured JSON logging via Pino (fastest Node logger). Logs every request with correlation ID, response time, status code, user agent. Streams to stdout → forwarded to Loki.</div>
+        <div class="layer-feats">
+          <span class="feat">Pino JSON output</span>
+          <span class="feat">Correlation ID</span>
+          <span class="feat">Response time (ms)</span>
+          <span class="feat">Log levels</span>
+          <span class="feat">Loki / Grafana</span>
+        </div>
+        <div class="layer-code"><pre><span class="kw">import</span> pino     <span class="kw">from</span> <span class="str">'pino'</span>;
+<span class="kw">import</span> pinoHttp <span class="kw">from</span> <span class="str">'pino-http'</span>;
+
+<span class="kw">export const</span> logger = <span class="fn">pino</span>({
+  level: process.env.LOG_LEVEL ?? <span class="str">'info'</span>,
+  transport: process.env.NODE_ENV !== <span class="str">'production'</span>
+    ? { target: <span class="str">'pino-pretty'</span> } : <span class="kw">undefined</span>,
+});
+
+app.<span class="fn">use</span>(<span class="fn">pinoHttp</span>({
+  logger,
+  genReqId: (req) => req.headers[<span class="str">'x-correlation-id'</span>] ?? <span class="fn">randomUUID</span>(),
+  customSuccessMessage: (req, res) =>
+    `${req.method} ${req.url} → ${res.statusCode}`,
+}));</pre></div>
+      </div>
+
+      <!-- HTTP Response -->
+      <div class="conn" style="--clr:#4ade80"><div class="conn-line"></div><div class="conn-arr"></div></div>
+      <div class="res-tail">
+        <span class="res-status" id="res-status-badge">200 OK</span>
+        <span style="font-size:.76rem;color:var(--muted)" id="res-body-txt">Response dispatched to client</span>
+        <span class="res-ms" id="res-ms-txt">—</span>
+      </div>
+
+    </div><!-- /pipeline -->
+
+    <!-- ── RIGHT PANEL ────────────────────────────── -->
+    <div class="right-col">
+
+      <!-- controls -->
+      <div class="ctrl-card">
+        <div class="ctrl-title">⚡ Simulate Request</div>
+        <div class="req-type-btns">
+          <div class="rt-btn sel" id="rt-success" onclick="setReqType('success')">✅ Success</div>
+          <div class="rt-btn" id="rt-rate"    onclick="setReqType('rate')">⏱ 429</div>
+          <div class="rt-btn" id="rt-invalid" onclick="setReqType('invalid')">❌ 400</div>
+          <div class="rt-btn" id="rt-cors"    onclick="setReqType('cors')">🌐 CORS</div>
+        </div>
+        <button class="btn-sim" id="btn-sim" onclick="simulate()">▶ Send Request</button>
+        <button class="btn-reset" onclick="resetSim()">↺ Reset</button>
+      </div>
+
+      <!-- log -->
+      <div class="log-card">
+        <div class="ctrl-title">📋 Request Log</div>
+        <div class="log-inner" id="log-inner">
+          <div class="log-row"><span class="log-t">──</span><span class="log-s" style="color:#1e293b">Waiting for request…</span></div>
+        </div>
+      </div>
+
+      <!-- stats -->
+      <div class="stats-card">
+        <div class="ctrl-title">📊 Session Stats</div>
+        <div class="stats-grid">
+          <div class="stat"><div class="sv" id="st-total" style="color:#60a5fa">0</div><div class="sk">Requests</div></div>
+          <div class="stat"><div class="sv" id="st-ok"    style="color:#4ade80">0</div><div class="sk">Success</div></div>
+          <div class="stat"><div class="sv" id="st-err"   style="color:#f87171">0</div><div class="sk">Errors</div></div>
+          <div class="stat"><div class="sv" id="st-ms"    style="color:#a78bfa">—</div><div class="sk">Last (ms)</div></div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ═══ LAYER TOGGLE ══════════════════════════════════════════ */
+function toggleLayer(i) {
+  document.getElementById(`layer-${i}`).classList.toggle('open');
+}
+
+/* ═══ REQUEST TYPES ══════════════════════════════════════════ */
+let reqType = 'success';
+const REQ_CONFIGS = {
+  success: { method:'GET',  path:'/api/products?limit=20&category=sofa', status:200, statusTxt:'200 OK',              failAt:-1 },
+  rate:    { method:'GET',  path:'/api/products (throttled)',              status:429, statusTxt:'429 Too Many Requests', failAt:2  },
+  invalid: { method:'POST', path:'/api/orders (bad payload)',              status:400, statusTxt:'400 Bad Request',       failAt:3  },
+  cors:    { method:'GET',  path:'/api/products (blocked origin)',         status:403, statusTxt:'403 Forbidden (CORS)',  failAt:1  },
+};
+
+function setReqType(t) {
+  reqType = t;
+  ['success','rate','invalid','cors'].forEach(k => document.getElementById(`rt-${k}`).classList.toggle('sel', k === t));
+}
+
+/* ═══ SIMULATION ══════════════════════════════════════════════ */
+const LAYER_META = [
+  { name:'Helmet',         clr:'#f87171', msgs:['→ Injecting 15 security headers','  Content-Security-Policy set','  X-Frame-Options: DENY','  HSTS enabled (1y)'] },
+  { name:'CORS',           clr:'#fb923c', msgs:['→ Checking Origin header','  Origin: https://furnistorm.in','  ✓ Whitelisted, setting CORS headers'] },
+  { name:'Rate Limiter',   clr:'#facc15', msgs:['→ Checking request count for IP','  Counter: 12 / 100 this window'] },
+  { name:'Validation',     clr:'#4ade80', msgs:['→ Parsing query params with Zod','  limit: 20 ✓','  category: "sofa" ✓'] },
+  { name:'Error Handler',  clr:'#f472b6', msgs:['→ Standing by (no error in chain)'] },
+  { name:'Swagger',        clr:'#60a5fa', msgs:['→ Non-docs route, passing through'] },
+  { name:'Logging',        clr:'#a78bfa', msgs:['→ Logging request','  correlationId: req_9f2a1c','  method: GET, url: /api/products'] },
+];
+
+const FAIL_MSGS = {
+  1: ['→ Checking Origin header','  Origin: https://evil.com','  ✗ Not in whitelist','  → Returning 403 Forbidden'],
+  2: ['→ Checking request count for IP','  Counter: 101 / 100 this window','  ✗ Limit exceeded','  → Returning 429 Too Many Requests'],
+  3: ['→ Parsing body with Zod','  productId: undefined — REQUIRED','  quantity: -5 — must be ≥ 1','  → Returning 400 Bad Request'],
+};
+
+let running = false;
+let totals = 0, okCount = 0, errCount = 0;
+
+function log(msg, color = '#475569') {
+  const box = document.getElementById('log-inner');
+  if (totals === 1 && box.children.length === 1) box.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'log-row';
+  el.innerHTML = `<span class="log-t">[${new Date().toLocaleTimeString('en-GB',{hour12:false})}]</span><span class="log-s" style="color:${color}">${msg}</span>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function simulate() {
+  if (running) return;
+  running = true;
+  totals++;
+  document.getElementById('st-total').textContent = totals;
+  document.getElementById('btn-sim').disabled = true;
+
+  const cfg = REQ_CONFIGS[reqType];
+  const startMs = performance.now();
+
+  // reset visuals
+  for (let i = 0; i < 7; i++) document.getElementById(`layer-${i}`).classList.remove('active-layer');
+  document.getElementById('req-method-badge').textContent = cfg.method;
+  document.getElementById('req-path-txt').textContent = `${cfg.method} ${cfg.path}`;
+  document.getElementById('res-status-badge').textContent = '…';
+  document.getElementById('res-status-badge').style.color = '';
+  document.getElementById('res-ms-txt').textContent = '—';
+  document.getElementById('res-body-txt').textContent = 'Processing…';
+
+  log(`── ${cfg.method} ${cfg.path} ──`, '#334155');
+
+  for (let i = 0; i < 7; i++) {
+    const lm = LAYER_META[i];
+    const el = document.getElementById(`layer-${i}`);
+    el.classList.add('active-layer');
+    log(`[${lm.name}]`, lm.clr);
+
+    const isFail = i === cfg.failAt;
+    const msgs = isFail ? FAIL_MSGS[i] : lm.msgs;
+    for (const m of msgs) {
+      await delay(170);
+      log(`  ${m}`, isFail ? '#f87171' : '#475569');
+    }
+    await delay(isFail ? 250 : 200);
+    el.classList.remove('active-layer');
+
+    if (isFail) {
+      // error path
+      errCount++;
+      document.getElementById('st-err').textContent = errCount;
+      const elapsed = Math.round(performance.now() - startMs);
+      document.getElementById('st-ms').textContent = elapsed + 'ms';
+      document.getElementById('res-status-badge').textContent = cfg.statusTxt;
+      document.getElementById('res-status-badge').style.color = '#f87171';
+      document.getElementById('res-ms-txt').textContent = elapsed + 'ms';
+      document.getElementById('res-body-txt').textContent = 'Error response returned';
+      log(`  ← ${cfg.statusTxt}`, '#f87171');
+      log(`── END (${elapsed}ms) ──`, '#1e293b');
+      document.getElementById('btn-sim').disabled = false;
+      running = false;
+      return;
+    }
+  }
+
+  okCount++;
+  document.getElementById('st-ok').textContent = okCount;
+  const elapsed = Math.round(performance.now() - startMs);
+  document.getElementById('st-ms').textContent = elapsed + 'ms';
+  document.getElementById('res-status-badge').textContent = cfg.statusTxt;
+  document.getElementById('res-status-badge').style.color = '#4ade80';
+  document.getElementById('res-ms-txt').textContent = elapsed + 'ms';
+  document.getElementById('res-body-txt').textContent = 'Success response dispatched';
+  log(`  ← 200 OK  { data: [...products] }`, '#4ade80');
+  log(`── END (${elapsed}ms) ──`, '#1e293b');
+
+  document.getElementById('btn-sim').disabled = false;
+  running = false;
+}
+
+function resetSim() {
+  totals = 0; okCount = 0; errCount = 0;
+  ['st-total','st-ok','st-err'].forEach(id => document.getElementById(id).textContent = '0');
+  document.getElementById('st-ms').textContent = '—';
+  document.getElementById('log-inner').innerHTML = `<div class="log-row"><span class="log-t">──</span><span class="log-s" style="color:#1e293b">Waiting for request…</span></div>`;
+  document.getElementById('res-status-badge').textContent = '200 OK';
+  document.getElementById('res-status-badge').style.color = '';
+  document.getElementById('res-ms-txt').textContent = '—';
+  document.getElementById('res-body-txt').textContent = 'Response dispatched to client';
+  for (let i = 0; i < 7; i++) document.getElementById(`layer-${i}`).classList.remove('active-layer');
+}
+
+/* ═══ BG STARS ════════════════════════════════════════════════ */
+(function () {
+  const c = document.getElementById('bg-c');
+  const ctx = c.getContext('2d');
+  let s = [];
+  function init() { c.width = innerWidth; c.height = innerHeight; s = Array.from({length:100},()=>({x:Math.random()*c.width,y:Math.random()*c.height,r:Math.random()*.9+.2,a:Math.random(),da:(Math.random()-.5)*.004})); }
+  function draw() { ctx.clearRect(0,0,c.width,c.height); s.forEach(p=>{p.a=Math.max(.05,Math.min(1,p.a+p.da));if(p.a<=.05||p.a>=1)p.da*=-1;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=`rgba(200,215,255,${p.a})`;ctx.fill();}); requestAnimationFrame(draw); }
+  window.addEventListener('resize',init); init(); draw();
+})();
+</script>
+</body>
+</html>

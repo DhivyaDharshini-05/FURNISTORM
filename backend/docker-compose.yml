@@ -1,0 +1,61 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://furnistorm_user:furnistorm_pass@postgres:5432/furnistorm_db
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://furnistorm_user:furnistorm_pass@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: furnistorm_user
+      POSTGRES_PASSWORD: furnistorm_pass
+      POSTGRES_DB: furnistorm_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U furnistorm_user -d furnistorm_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: furnistorm_user
+      RABBITMQ_DEFAULT_PASS: furnistorm_pass
+    ports:
+      - "5673:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
